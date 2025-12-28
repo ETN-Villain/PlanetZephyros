@@ -1,0 +1,76 @@
+{
+	"compiler": {
+		"version": "0.8.20+commit.a1b79de6"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "string",
+						"name": "rarity",
+						"type": "string"
+					}
+				],
+				"name": "isRestrictedRarity",
+				"outputs": [
+					{
+						"internalType": "bool",
+						"name": "",
+						"type": "bool"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"stateVariables": {
+				"restrictedRarity": {
+					"details": "keccak256(rarity string) => is restricted"
+				}
+			},
+			"title": "RarityLookup",
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {
+				"isRestrictedRarity(string)": {
+					"notice": "Check if a rarity string is restricted"
+				}
+			},
+			"notice": "Centralized rarity restriction registry for TCG teams Restricted rarities are limited to ONE per team. Unrestricted rarities (e.g. Forest of Globes) may be duplicated. Uses keccak256(string) lookup to avoid string comparison pitfalls.",
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/CoreClashRarityLookupTable.sol": "RarityLookup"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": false,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/CoreClashRarityLookupTable.sol": {
+			"keccak256": "0x73270f9d7dcb983efddeb6cd3033bb5ad0c431b7feab6b1a83e0ea6a6a27877f",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://3ad08639df3e11305a31fa13299aa26c6b5705a35c5419d622a18aaa6af34c3f",
+				"dweb:/ipfs/QmbYK6oLYNSF59UQT7eH2VNztQWtHnGbBjw4AnJcx8obyM"
+			]
+		}
+	},
+	"version": 1
+}

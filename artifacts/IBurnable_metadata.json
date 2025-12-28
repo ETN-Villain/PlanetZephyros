@@ -1,0 +1,59 @@
+{
+	"compiler": {
+		"version": "0.8.20+commit.a1b79de6"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "uint256",
+						"name": "amount",
+						"type": "uint256"
+					}
+				],
+				"name": "burn",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/PlanetZephyrosFeeReflection.sol": "IBurnable"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": false,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/PlanetZephyrosFeeReflection.sol": {
+			"keccak256": "0xbf151b93a8fcab8609ae7c907b90bc14a99655475fa8d5f38cb11f3a6c61901b",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://05caf6998c76c79a67ffcce56f55bc6f6137198be782149afb9feb7f07d19ca2",
+				"dweb:/ipfs/QmQTjrrCN2MDrNNyGevMSdVXHJeKiRZb139RrCiCQnkjBC"
+			]
+		}
+	},
+	"version": 1
+}

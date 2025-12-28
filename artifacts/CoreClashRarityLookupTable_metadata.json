@@ -1,0 +1,182 @@
+{
+	"compiler": {
+		"version": "0.8.20+commit.a1b79de6"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [],
+				"name": "EmptyRarity",
+				"type": "error"
+			},
+			{
+				"inputs": [],
+				"name": "LengthMismatch",
+				"type": "error"
+			},
+			{
+				"inputs": [],
+				"name": "NotOwner",
+				"type": "error"
+			},
+			{
+				"anonymous": false,
+				"inputs": [
+					{
+						"indexed": true,
+						"internalType": "address",
+						"name": "oldOwner",
+						"type": "address"
+					},
+					{
+						"indexed": true,
+						"internalType": "address",
+						"name": "newOwner",
+						"type": "address"
+					}
+				],
+				"name": "OwnershipTransferred",
+				"type": "event"
+			},
+			{
+				"anonymous": false,
+				"inputs": [
+					{
+						"indexed": false,
+						"internalType": "string",
+						"name": "rarity",
+						"type": "string"
+					},
+					{
+						"indexed": false,
+						"internalType": "bool",
+						"name": "restricted",
+						"type": "bool"
+					}
+				],
+				"name": "RarityRestrictionSet",
+				"type": "event"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "string",
+						"name": "rarity",
+						"type": "string"
+					}
+				],
+				"name": "isRestrictedRarity",
+				"outputs": [
+					{
+						"internalType": "bool",
+						"name": "",
+						"type": "bool"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "owner",
+				"outputs": [
+					{
+						"internalType": "address",
+						"name": "",
+						"type": "address"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "string[]",
+						"name": "rarities",
+						"type": "string[]"
+					},
+					{
+						"internalType": "bool[]",
+						"name": "restricted",
+						"type": "bool[]"
+					}
+				],
+				"name": "setRestrictedRarities",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "string",
+						"name": "rarity",
+						"type": "string"
+					},
+					{
+						"internalType": "bool",
+						"name": "restricted",
+						"type": "bool"
+					}
+				],
+				"name": "setRestrictedRarity",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "newOwner",
+						"type": "address"
+					}
+				],
+				"name": "transferOwnership",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"title": "CoreClashRarityLookupTable",
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"notice": "Admin-configurable rarity restriction table Restricted rarities may appear at most once per team. Unrestricted rarities may be duplicated.",
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/CoreClashRarityLookupTable.sol": "CoreClashRarityLookupTable"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": false,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/CoreClashRarityLookupTable.sol": {
+			"keccak256": "0xbe02c960842bc3cc96bd6894f3160be238344c69eb31227184a940f3e50015e8",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://6c8a7f1457fe6c79ffbb15481580849c32e076fab93d036cfd81d7581f064c27",
+				"dweb:/ipfs/Qma4iXimEPcK8EY43PnLodpkXAMnStj5NpGzVy5QT46Xdn"
+			]
+		}
+	},
+	"version": 1
+}

@@ -1,0 +1,118 @@
+{
+	"compiler": {
+		"version": "0.8.20+commit.a1b79de6"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "spender",
+						"type": "address"
+					},
+					{
+						"internalType": "uint256",
+						"name": "amount",
+						"type": "uint256"
+					}
+				],
+				"name": "approve",
+				"outputs": [
+					{
+						"internalType": "bool",
+						"name": "",
+						"type": "bool"
+					}
+				],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "account",
+						"type": "address"
+					}
+				],
+				"name": "balanceOf",
+				"outputs": [
+					{
+						"internalType": "uint256",
+						"name": "",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "decimals",
+				"outputs": [
+					{
+						"internalType": "uint8",
+						"name": "",
+						"type": "uint8"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/CoreClashGame.sol": "IERC20"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": false,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"@openzeppelin/contracts/security/ReentrancyGuard.sol": {
+			"keccak256": "0xa535a5df777d44e945dd24aa43a11e44b024140fc340ad0dfe42acf4002aade1",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://41319e7f621f2dc3733511332c4fd032f8e32ad2aa7fd6f665c19741d9941a34",
+				"dweb:/ipfs/QmcYR3bd862GD1Bc7jwrU9bGxrhUu5na1oP964bDCu2id1"
+			]
+		},
+		"contracts/CoreClashGame.sol": {
+			"keccak256": "0x26be17fc8e237eac8df52f77e98a8a161efd2507ca674bc159b70f7c3a88a675",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://68f29c66202f0c3f5b191780c2ff705d774245bbed98e9ff31cbe05566022fae",
+				"dweb:/ipfs/QmSojxXmAZsA4NKnyy16UjF1XDXd1LWQit9xFJ1ygGZsj1"
+			]
+		},
+		"contracts/CoreClashRarityLookupTable.sol": {
+			"keccak256": "0x5f54f4c9bb1edd05e667f8d1dfa29ca93b7f7737727d982b0556eed13763a1f2",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://1618f2da34d5ea0b2611f437eccc0f0b82c223ba5151b4c284944593b658760e",
+				"dweb:/ipfs/QmSiTeLrYgYKPUfeUwFYM12DHtqDacRJpETqhrwU3Wztwe"
+			]
+		}
+	},
+	"version": 1
+}
