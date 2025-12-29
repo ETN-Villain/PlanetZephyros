@@ -121,8 +121,7 @@ contract CoreClashGame is CoreClashRarityLookupTable {
     function _computeCommit(
         uint256 salt,
         address[3] calldata nftContracts,
-        uint256[3] calldata nftIds,
-        string[3] calldata backgrounds
+        uint256[3] calldata nftIds
     ) internal pure returns (bytes32) {
         return keccak256(
             abi.encodePacked(
@@ -132,10 +131,7 @@ contract CoreClashGame is CoreClashRarityLookupTable {
                 nftContracts[2],
                 nftIds[0],
                 nftIds[1],
-                nftIds[2],
-                backgrounds[0],
-                backgrounds[1],
-                backgrounds[2]
+                nftIds[2]
             )
         );
     }
@@ -259,8 +255,7 @@ function reveal(
     bytes32 computed = _computeCommit(
         salt,
         nftContracts,
-        nftIds,
-        backgrounds
+        nftIds
     );
     
         if (msg.sender == g.player1) {
