@@ -1,6 +1,6 @@
 {
 	"compiler": {
-		"version": "0.8.20+commit.a1b79de6"
+		"version": "0.8.24+commit.e11b9ed9"
 	},
 	"language": "Solidity",
 	"output": {
@@ -479,9 +479,9 @@
 						"type": "uint256[3]"
 					},
 					{
-						"internalType": "string[]",
+						"internalType": "string[3]",
 						"name": "backgrounds",
-						"type": "string[]"
+						"type": "string[3]"
 					}
 				],
 				"name": "reveal",
@@ -670,7 +670,7 @@
 			"bytecodeHash": "ipfs"
 		},
 		"optimizer": {
-			"enabled": false,
+			"enabled": true,
 			"runs": 200
 		},
 		"remappings": []
@@ -733,19 +733,19 @@
 			]
 		},
 		"contracts/CoreClashGameV2.sol": {
-			"keccak256": "0x3f035b3632f02f90f61ca6aa86b78647cf866c8e1b95a6b7c8c6f3bffe4155ea",
+			"keccak256": "0x1af1518856a7e0f1c29560b3c171b1429abd4a5a1ccb16669db4c940336b5622",
 			"license": "MIT",
 			"urls": [
-				"bzz-raw://78c740331996c699b8dd478b253ed3c90aa5a7cbf816ef811d64f750ef9cab11",
-				"dweb:/ipfs/QmdaoJn6M5s4xLKQZFyi3BnCL4jbn1PVRdTccDSuHfHgBj"
+				"bzz-raw://e91941382df344fd08be006920ad6783e2d13828974bcd214ff1d3d465f7c277",
+				"dweb:/ipfs/Qmaq1gehL64EXoag2U7kFuaPX9VS1kx9fnFYZhVd8zd8Zf"
 			]
 		},
 		"contracts/CoreClashRarityLookupTable.sol": {
-			"keccak256": "0xd0df2eb5d798b62ae21178a984c416a90c24147618a03ed148971c4a1a89363f",
+			"keccak256": "0xbe02c960842bc3cc96bd6894f3160be238344c69eb31227184a940f3e50015e8",
 			"license": "MIT",
 			"urls": [
-				"bzz-raw://06808162408adda05b1dd40ceb527290c949d5c1e08996c7383decc5a06617e7",
-				"dweb:/ipfs/Qmf1CHawwBkCiBZmX2y6AWSuDjJiGTaippXvXFJpnbkMCk"
+				"bzz-raw://6c8a7f1457fe6c79ffbb15481580849c32e076fab93d036cfd81d7581f064c27",
+				"dweb:/ipfs/Qma4iXimEPcK8EY43PnLodpkXAMnStj5NpGzVy5QT46Xdn"
 			]
 		}
 	},
