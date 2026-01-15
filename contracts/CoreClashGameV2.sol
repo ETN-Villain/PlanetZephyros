@@ -51,6 +51,7 @@ contract CoreClashGame is CoreClashRarityLookupTable {
 
     address public teamWallet;
     uint256 public platformFee; // basis points
+    address public hostWallet;
 
     function gamesLength() external view returns (uint256) {
         return games.length;
@@ -113,10 +114,21 @@ contract CoreClashGame is CoreClashRarityLookupTable {
         platformFee = feeBps;
     }
 
+    event TeamWalletUpdated(address indexed previous, address indexed newWallet);
+
     function setTeamWallet(address wallet) external onlyOwner {
         require(wallet != address(0), "Zero address");
+        emit TeamWalletUpdated(teamWallet, wallet);
         teamWallet = wallet;
     }
+
+    event HostWalletUpdated(address indexed previous, address indexed newWallet);
+
+    function setHostWallet(address wallet) external onlyOwner {
+        require(wallet != address(0), "Zero address");
+        emit HostWalletUpdated(hostWallet, wallet);
+        hostWallet = wallet;
+}
 
     function _computeCommit(
         uint256 salt,
@@ -327,28 +339,54 @@ function reveal(
                           INTERNAL PAYOUTS
     //////////////////////////////////////////////////////////////*/
 
-    function _payout(uint256 gameId, address winner) internal {
-        Game storage g = games[gameId];
-        g.settled = true;
+function _payout(uint256 gameId, address winner) internal {
+    Game storage g = games[gameId];
+    g.settled = true;
 
-        uint256 pot = g.stakeAmount * 2;
-        uint256 fee = (pot * platformFee) / 10_000;
-        uint256 payout = pot - fee;
+    uint256 pot = g.stakeAmount * 2;
 
+    uint256 fee = 0;
+    uint256 payout = pot;
+
+    // Only take platform fee if pot >= 10 CORE
+    if (pot >= 10 * 10**18) { // adjust 10**18 to match CORE decimals
+        fee = (pot * platformFee) / 10_000;
+        payout = pot - fee;
+
+        // Split the fee: 2/5 team, 2/5 host, 1/5 burn
         if (fee > 0) {
-            IERC20(g.stakeToken).safeTransfer(teamWallet, fee);
-        }
+            uint256 teamShare = (fee * 2) / 5;  // 2/5
+            uint256 hostShare = (fee * 2) / 5;  // 2/5
+            uint256 burnShare = fee - teamShare - hostShare; // 1/5
 
-        if (winner != address(0)) {
-            IERC20(g.stakeToken).safeTransfer(winner, payout);
-        } else {
-            // tie
-            IERC20(g.stakeToken).safeTransfer(g.player1, payout / 2);
-            IERC20(g.stakeToken).safeTransfer(g.player2, payout - payout / 2);
-        }
+            if (teamShare > 0 && teamWallet != address(0)) {
+                IERC20(g.stakeToken).safeTransfer(teamWallet, teamShare);
+            }
 
-        emit GameSettled(gameId, winner);
+            if (hostShare > 0 && hostWallet != address(0)) {
+                IERC20(g.stakeToken).safeTransfer(hostWallet, hostShare);
+            }
+
+            if (burnShare > 0) {
+                IERC20(g.stakeToken).safeTransfer(address(0), burnShare); // burn
+            }
+        }
     }
+
+    if (winner != address(0)) {
+        // single winner
+        if (payout > 0) {
+            IERC20(g.stakeToken).safeTransfer(winner, payout);
+        }
+    } else {
+        // tie — split payout evenly
+        uint256 half = payout / 2;
+        IERC20(g.stakeToken).safeTransfer(g.player1, half);
+        IERC20(g.stakeToken).safeTransfer(g.player2, payout - half); // handle odd units
+    }
+
+    emit GameSettled(gameId, winner);
+}
 
     function _refund(uint256 gameId) internal {
         Game storage g = games[gameId];
