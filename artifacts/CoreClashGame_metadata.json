@@ -118,6 +118,25 @@
 					{
 						"indexed": true,
 						"internalType": "address",
+						"name": "previous",
+						"type": "address"
+					},
+					{
+						"indexed": true,
+						"internalType": "address",
+						"name": "newWallet",
+						"type": "address"
+					}
+				],
+				"name": "HostWalletUpdated",
+				"type": "event"
+			},
+			{
+				"anonymous": false,
+				"inputs": [
+					{
+						"indexed": true,
+						"internalType": "address",
 						"name": "oldOwner",
 						"type": "address"
 					},
@@ -167,6 +186,25 @@
 					}
 				],
 				"name": "Revealed",
+				"type": "event"
+			},
+			{
+				"anonymous": false,
+				"inputs": [
+					{
+						"indexed": true,
+						"internalType": "address",
+						"name": "previous",
+						"type": "address"
+					},
+					{
+						"indexed": true,
+						"internalType": "address",
+						"name": "newWallet",
+						"type": "address"
+					}
+				],
+				"name": "TeamWalletUpdated",
 				"type": "event"
 			},
 			{
@@ -376,6 +414,19 @@
 				"type": "function"
 			},
 			{
+				"inputs": [],
+				"name": "hostWallet",
+				"outputs": [
+					{
+						"internalType": "address",
+						"name": "",
+						"type": "address"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
 				"inputs": [
 					{
 						"internalType": "string",
@@ -503,6 +554,19 @@
 					}
 				],
 				"name": "setAllowedERC20",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "wallet",
+						"type": "address"
+					}
+				],
+				"name": "setHostWallet",
 				"outputs": [],
 				"stateMutability": "nonpayable",
 				"type": "function"
@@ -733,11 +797,11 @@
 			]
 		},
 		"contracts/CoreClashGameV2.sol": {
-			"keccak256": "0x1af1518856a7e0f1c29560b3c171b1429abd4a5a1ccb16669db4c940336b5622",
+			"keccak256": "0xb82bf53cc15f5b0baee751fa687cd7491f21046228a7944106318c2a934cbf21",
 			"license": "MIT",
 			"urls": [
-				"bzz-raw://e91941382df344fd08be006920ad6783e2d13828974bcd214ff1d3d465f7c277",
-				"dweb:/ipfs/Qmaq1gehL64EXoag2U7kFuaPX9VS1kx9fnFYZhVd8zd8Zf"
+				"bzz-raw://565fd2740772b4d794d1f341b51e56e448adc03dd3955cae03682778bdc19203",
+				"dweb:/ipfs/QmQ5AHLHQZ7CLSZhAMSRPEp8fsHwa3KbGiTsXxT7pQYfW7"
 			]
 		},
 		"contracts/CoreClashRarityLookupTable.sol": {
