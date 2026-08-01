@@ -30,4 +30,9 @@ interface INameWrapperLite is IERC1155 {
     function getData(uint256 id) external view returns (address owner, uint32 fuses, uint64 expiry);
 
     function canModifyName(bytes32 node, address addr) external view returns (bool);
+
+    /// @dev DNS wire-format encoded name for `node` (e.g. "\x05alice\x03etn\x00"). Used to
+    /// verify a caller-supplied label against a caller-supplied node without this contract ever
+    /// needing to know or assume the chain's actual TLD/root node.
+    function names(bytes32 node) external view returns (bytes memory);
 }

@@ -78,8 +78,39 @@ describe("PlanetZephyrosNameMarketplace", function () {
     const [basePrice, brokerageFee, totalPrice] = await ctx.marketplace.quoteRegistration(label, ONE_YEAR);
     await ctx.marketplace
       .connect(signer)
-      .registerName(label, ONE_YEAR, secret, referrer, signer.address, 0, { value: totalPrice });
+      .registerName(label, ONE_YEAR, secret, referrer, signer.address, 0, parentNodeFor(label), {
+        value: totalPrice,
+      });
     return { basePrice, brokerageFee, totalPrice, secret, referrer };
+  }
+
+  /// Simulates a buyer registering directly with ETHRegistrarController and wrapping it
+  /// themselves, entirely bypassing the marketplace (no brokerage ever paid).
+  async function registerDirect(ctx, signer, label) {
+    const { controller, base, wrapper } = ctx;
+    const secret = ethers.hexlify(ethers.randomBytes(32));
+    const registration = {
+      label,
+      owner: signer.address,
+      duration: ONE_YEAR,
+      secret,
+      resolver: ethers.ZeroAddress,
+      data: [],
+      reverseRecord: 0,
+      referrer: ethers.ZeroHash,
+    };
+    const commitment = await controller.makeCommitment(registration);
+    await controller.connect(signer).commit(commitment);
+    await time.increase(61);
+
+    const price = await controller.rentPrice(label, ONE_YEAR);
+    await controller.connect(signer).register(registration, { value: price.base + price.premium });
+
+    const registrarId = ethers.keccak256(ethers.toUtf8Bytes(label));
+    await base.connect(signer).approve(await wrapper.getAddress(), registrarId);
+    await wrapper.connect(signer).wrapETH2LD(label, signer.address, 0, ethers.ZeroAddress);
+
+    return { node: parentNodeFor(label) };
   }
 
   async function withRegisteredParent(label = "alice") {
@@ -157,11 +188,14 @@ describe("PlanetZephyrosNameMarketplace", function () {
 
       const tx = await marketplace
         .connect(alice)
-        .registerName(label, ONE_YEAR, secret, referrer, alice.address, 0, { value: overpay });
+        .registerName(label, ONE_YEAR, secret, referrer, alice.address, 0, parentNodeFor(label), {
+          value: overpay,
+        });
       const receipt = await tx.wait();
       const gasCost = receipt.gasUsed * receipt.gasPrice;
 
       expect(await wrapper.ownerOf(BigInt(parentNodeFor(label)))).to.equal(alice.address);
+      expect(await marketplace.domainActivated(parentNodeFor(label))).to.equal(true);
 
       const projectBalanceAfter = await ethers.provider.getBalance(projectWallet.address);
       expect(projectBalanceAfter - projectBalanceBefore).to.equal(brokerageFee);
@@ -182,7 +216,9 @@ describe("PlanetZephyrosNameMarketplace", function () {
       await expect(
         marketplace
           .connect(alice)
-          .registerName(label, ONE_YEAR, secret, referrer, alice.address, 0, { value: totalPrice - 1n })
+          .registerName(label, ONE_YEAR, secret, referrer, alice.address, 0, parentNodeFor(label), {
+            value: totalPrice - 1n,
+          })
       ).to.be.revertedWith("Insufficient payment");
     });
 
@@ -198,7 +234,9 @@ describe("PlanetZephyrosNameMarketplace", function () {
       await expect(
         marketplace
           .connect(alice)
-          .registerName(label, ONE_YEAR, secret, referrer, ethers.ZeroAddress, 0, { value: totalPrice })
+          .registerName(label, ONE_YEAR, secret, referrer, ethers.ZeroAddress, 0, parentNodeFor(label), {
+            value: totalPrice,
+          })
       ).to.be.revertedWith("Zero wrapped owner");
     });
 
@@ -215,7 +253,9 @@ describe("PlanetZephyrosNameMarketplace", function () {
       await expect(
         marketplace
           .connect(alice)
-          .registerName(label, ONE_YEAR, secret, referrer, alice.address, 0, { value: totalPrice })
+          .registerName(label, ONE_YEAR, secret, referrer, alice.address, 0, parentNodeFor(label), {
+            value: totalPrice,
+          })
       ).to.be.revertedWith("Marketplace paused");
     });
   });
@@ -351,6 +391,142 @@ describe("PlanetZephyrosNameMarketplace", function () {
       await expect(
         marketplace.connect(bob).listExistingName(tokenId, ethers.parseEther("1"))
       ).to.be.revertedWith("Not token owner");
+    });
+
+    it("a subname created via buyListing is itself immediately activated for resale", async function () {
+      const ctx = await withRegisteredParent();
+      const { marketplace, wrapper, alice, bob, carol } = ctx;
+      const parentNode = parentNodeFor("alice");
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      await marketplace.connect(alice).listSubname(parentNode, "shop", 0, 0, ethers.parseEther("1"));
+      await marketplace.connect(bob).buyListing(1, { value: ethers.parseEther("1") });
+
+      const subNode = subNodeFor(parentNode, "shop");
+      expect(await marketplace.domainActivated(subNode)).to.equal(true);
+
+      await wrapper.connect(bob).setApprovalForAll(await marketplace.getAddress(), true);
+      await expect(marketplace.connect(bob).listExistingName(BigInt(subNode), ethers.parseEther("2"))).to.not.be
+        .reverted;
+      await marketplace.connect(carol).buyListing(2, { value: ethers.parseEther("2") });
+      expect(await wrapper.ownerOf(BigInt(subNode))).to.equal(carol.address);
+    });
+  });
+
+  describe("domain activation (bypassing the marketplace at registration)", function () {
+    it("listSubname reverts on a directly-registered (never activated) domain", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, wrapper, alice } = ctx;
+      const label = "direct";
+      await registerDirect(ctx, alice, label);
+      const node = parentNodeFor(label);
+
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      await expect(
+        marketplace.connect(alice).listSubname(node, "shop", 0, 0, ethers.parseEther("1"))
+      ).to.be.revertedWith("Domain not activated");
+    });
+
+    it("listExistingName reverts on a directly-registered (never activated) domain", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, wrapper, alice } = ctx;
+      const label = "direct2";
+      await registerDirect(ctx, alice, label);
+      const node = parentNodeFor(label);
+
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      await expect(
+        marketplace.connect(alice).listExistingName(BigInt(node), ethers.parseEther("1"))
+      ).to.be.revertedWith("Domain not activated");
+    });
+
+    it("activateDomain reverts if caller doesn't own the name", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, alice, bob } = ctx;
+      const label = "direct3";
+      await registerDirect(ctx, alice, label);
+      const node = parentNodeFor(label);
+
+      await expect(
+        marketplace.connect(bob).activateDomain(node, label, { value: ethers.parseEther("1000") })
+      ).to.be.revertedWith("Not name owner");
+    });
+
+    it("activateDomain reverts on label mismatch", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, alice } = ctx;
+      const label = "direct4";
+      await registerDirect(ctx, alice, label);
+      const node = parentNodeFor(label);
+
+      await expect(
+        marketplace.connect(alice).activateDomain(node, "wronglabel", { value: ethers.parseEther("1000") })
+      ).to.be.revertedWith("Label mismatch");
+    });
+
+    it("activateDomain reverts on insufficient payment", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, alice } = ctx;
+      const label = "direct5";
+      await registerDirect(ctx, alice, label);
+      const node = parentNodeFor(label);
+
+      await expect(marketplace.connect(alice).activateDomain(node, label, { value: 0 })).to.be.revertedWith(
+        "Insufficient payment"
+      );
+    });
+
+    it("activateDomain: happy path unlocks listSubname, pays projectWallet, refunds excess", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, wrapper, projectWallet, alice } = ctx;
+      const label = "direct6";
+      await registerDirect(ctx, alice, label);
+      const node = parentNodeFor(label);
+
+      const projectBalanceBefore = await ethers.provider.getBalance(projectWallet.address);
+      const aliceBalanceBefore = await ethers.provider.getBalance(alice.address);
+
+      const tx = await marketplace.connect(alice).activateDomain(node, label, { value: ethers.parseEther("1000") });
+      const receipt = await tx.wait();
+      const gasCost = receipt.gasUsed * receipt.gasPrice;
+
+      const event = receipt.logs
+        .map((l) => {
+          try {
+            return marketplace.interface.parseLog(l);
+          } catch {
+            return null;
+          }
+        })
+        .find((e) => e && e.name === "DomainActivated");
+      expect(event).to.not.equal(undefined);
+      const feePaid = event.args.feePaid;
+      expect(feePaid).to.be.gt(0n);
+
+      expect(await marketplace.domainActivated(node)).to.equal(true);
+
+      const projectBalanceAfter = await ethers.provider.getBalance(projectWallet.address);
+      expect(projectBalanceAfter - projectBalanceBefore).to.equal(feePaid);
+
+      const aliceBalanceAfter = await ethers.provider.getBalance(alice.address);
+      expect(aliceBalanceBefore - aliceBalanceAfter).to.equal(feePaid + gasCost);
+
+      // Now unlocked: listSubname should succeed.
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      await expect(marketplace.connect(alice).listSubname(node, "shop", 0, 0, ethers.parseEther("1"))).to.not.be
+        .reverted;
+    });
+
+    it("activateDomain reverts if already activated", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, alice } = ctx;
+      const label = "direct7";
+      await registerDirect(ctx, alice, label);
+      const node = parentNodeFor(label);
+
+      await marketplace.connect(alice).activateDomain(node, label, { value: ethers.parseEther("1000") });
+      await expect(
+        marketplace.connect(alice).activateDomain(node, label, { value: ethers.parseEther("1000") })
+      ).to.be.revertedWith("Already activated");
     });
   });
 

@@ -60,6 +60,15 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     bool public paused;
 
     // ========================
+    // Domain activation
+    // ========================
+    /// @notice Nodes that have paid their way into the marketplace, either by registering
+    /// through registerName, by having a subname created through buyListing (fee already
+    /// captured in that sale's 80/20 split), or via a retroactive activateDomain payment.
+    /// listSubname/listExistingName require this before a node can be used in the marketplace.
+    mapping(bytes32 => bool) public domainActivated;
+
+    // ========================
     // Marketplace listings
     // ========================
     enum ListingKind {
@@ -105,6 +114,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     event PausedUpdated(bool paused);
     event BuybackAndBurn(uint256 etnSpent, uint256 coreBurned);
     event TokensRescued(address token, uint256 amount, address to);
+    event DomainActivated(bytes32 indexed node, address indexed payer, uint256 feePaid);
 
     modifier whenNotPaused() {
         require(!paused, "Marketplace paused");
@@ -185,14 +195,18 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     /// @notice Registers a name via ETHRegistrarController and wraps it directly to
     /// `wrappedOwner`. Caller must have already called ETHRegistrarController.commit() with the
     /// exact commitment returned by computeCommitment(label, duration, secret, referrer), and
-    /// waited out the registrar's minCommitmentAge.
+    /// waited out the registrar's minCommitmentAge. `expectedNode` is the wrapped name's ENS
+    /// node (e.g. ethers.namehash("label.<tld>") computed off-chain) — this contract verifies it
+    /// against NameWrapper's own record after wrapping, rather than assuming any particular
+    /// root/TLD itself, and marks it activated so listSubname/listExistingName work immediately.
     function registerName(
         string calldata label,
         uint256 duration,
         bytes32 secret,
         bytes32 referrer,
         address wrappedOwner,
-        uint16 ownerControlledFuses
+        uint16 ownerControlledFuses,
+        bytes32 expectedNode
     ) external payable nonReentrant whenNotPaused returns (uint64 expiry) {
         require(wrappedOwner != address(0), "Zero wrapped owner");
 
@@ -212,6 +226,9 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         baseRegistrar.approve(address(nameWrapper), tokenId);
         expiry = nameWrapper.wrapETH2LD(label, wrappedOwner, ownerControlledFuses, defaultResolver);
 
+        require(_firstLabelMatches(nameWrapper.names(expectedNode), label), "expectedNode mismatch");
+        domainActivated[expectedNode] = true;
+
         if (brokerageFee > 0) {
             (bool ok, ) = projectWallet.call{value: brokerageFee}("");
             require(ok, "Brokerage transfer failed");
@@ -224,6 +241,57 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         }
 
         emit NameRegistered(msg.sender, label, basePrice, brokerageFee, wrappedOwner, ownerControlledFuses);
+    }
+
+    /// @notice Retroactively activates a name that was registered directly with
+    /// ETHRegistrarController (bypassing this marketplace's brokerage), so its owner can start
+    /// using listSubname/listExistingName. Fee is 20%-by-brokerageBps of what the registrar
+    /// would charge today to register this exact name for however much time is actually left on
+    /// it (read from NameWrapper), so it can't be gamed by under-declaring duration.
+    function activateDomain(
+        bytes32 node,
+        string calldata label
+    ) external payable nonReentrant whenNotPaused returns (uint256 fee) {
+        require(nameWrapper.ownerOf(uint256(node)) == msg.sender, "Not name owner");
+        require(!domainActivated[node], "Already activated");
+        require(_firstLabelMatches(nameWrapper.names(node), label), "Label mismatch");
+
+        (, , uint64 expiry) = nameWrapper.getData(uint256(node));
+        require(expiry > block.timestamp, "Name expired");
+        uint256 remaining = uint256(expiry) - block.timestamp;
+
+        IPriceOracle.Price memory p = registrarController.rentPrice(label, remaining);
+        uint256 basePrice = p.base + p.premium;
+        fee = (basePrice * brokerageBps) / BPS_DENOM;
+        require(msg.value >= fee, "Insufficient payment");
+
+        domainActivated[node] = true;
+
+        if (fee > 0) {
+            (bool ok, ) = projectWallet.call{value: fee}("");
+            require(ok, "Activation fee transfer failed");
+        }
+
+        uint256 refund = msg.value - fee;
+        if (refund > 0) {
+            (bool ok2, ) = payable(msg.sender).call{value: refund}("");
+            require(ok2, "Refund failed");
+        }
+
+        emit DomainActivated(node, msg.sender, fee);
+    }
+
+    /// @dev Compares the first (leftmost) DNS-wire-encoded label in `encoded` against `label`,
+    /// without assuming anything about what follows it (the TLD/root). Used to verify a
+    /// caller-supplied node/label pair against NameWrapper's own authoritative record.
+    function _firstLabelMatches(bytes memory encoded, string calldata label) internal pure returns (bool) {
+        bytes memory labelBytes = bytes(label);
+        if (encoded.length < 1 + labelBytes.length) return false;
+        if (uint8(encoded[0]) != labelBytes.length) return false;
+        for (uint256 i = 0; i < labelBytes.length; i++) {
+            if (encoded[1 + i] != labelBytes[i]) return false;
+        }
+        return true;
     }
 
     // ========================================================
@@ -242,6 +310,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         uint256 price
     ) external whenNotPaused returns (uint256 listingId) {
         require(price > 0, "Price required");
+        require(domainActivated[parentNode], "Domain not activated");
         require(nameWrapper.canModifyName(parentNode, msg.sender), "Not parent owner/operator");
         require(nameWrapper.isApprovedForAll(msg.sender, address(this)), "Marketplace not approved");
 
@@ -265,6 +334,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     /// have called nameWrapper.setApprovalForAll(marketplace, true).
     function listExistingName(uint256 tokenId, uint256 price) external whenNotPaused returns (uint256 listingId) {
         require(price > 0, "Price required");
+        require(domainActivated[bytes32(tokenId)], "Domain not activated");
         require(nameWrapper.ownerOf(tokenId) == msg.sender, "Not token owner");
         require(nameWrapper.isApprovedForAll(msg.sender, address(this)), "Marketplace not approved");
 
@@ -315,7 +385,16 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
                 expiry = parentExpiry;
             }
 
-            nameWrapper.setSubnodeRecord(l.parentNode, l.label, msg.sender, defaultResolver, 0, l.fuses, expiry);
+            bytes32 subNode = nameWrapper.setSubnodeRecord(
+                l.parentNode,
+                l.label,
+                msg.sender,
+                defaultResolver,
+                0,
+                l.fuses,
+                expiry
+            );
+            domainActivated[subNode] = true;
         } else {
             nameWrapper.safeTransferFrom(seller, msg.sender, l.tokenId, 1, "");
         }

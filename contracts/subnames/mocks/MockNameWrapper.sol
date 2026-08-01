@@ -23,6 +23,7 @@ contract MockNameWrapper is ERC1155 {
 
     MockBaseRegistrar public immutable base;
     mapping(uint256 => Data) private _data;
+    mapping(uint256 => bytes) private _names;
 
     constructor(MockBaseRegistrar _base) ERC1155("") {
         base = _base;
@@ -45,6 +46,7 @@ contract MockNameWrapper is ERC1155 {
         uint256 tokenId = uint256(keccak256(abi.encodePacked(ROOT_NODE, bytes32(registrarId))));
         _mint(wrappedOwner, tokenId, 1, "");
         _data[tokenId] = Data({owner: wrappedOwner, fuses: ownerControlledFuses, expiry: expiry});
+        _names[tokenId] = abi.encodePacked(uint8(bytes(label).length), label, bytes1(0));
     }
 
     function setSubnodeRecord(
@@ -68,6 +70,11 @@ contract MockNameWrapper is ERC1155 {
         }
         _mint(owner, tokenId, 1, "");
         _data[tokenId] = Data({owner: owner, fuses: fuses, expiry: expiry});
+        _names[tokenId] = abi.encodePacked(uint8(bytes(label).length), label, bytes1(0));
+    }
+
+    function names(bytes32 node) external view returns (bytes memory) {
+        return _names[uint256(node)];
     }
 
     function ownerOf(uint256 id) public view returns (address) {
