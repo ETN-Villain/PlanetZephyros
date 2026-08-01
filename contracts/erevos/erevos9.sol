@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.0/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.0/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./IMintable.sol";
 
 /**
@@ -52,14 +52,13 @@ constructor(
     address initialOwner,
     string memory baseURI
 
-) ERC721("Erevos Shares", "EREVOS") {
+) ERC721("Erevos Shares", "EREVOS") Ownable(initialOwner) {
     require(_maxSupply > 0, "Max supply must be greater than 0");
 
     _mintPrice = _initialMintPrice;
     maxSupply = _maxSupply;
     _nextTokenId = 1;
     tokenBaseURI = baseURI;
-    _transferOwnership(initialOwner);
 }
 
     // --- Public Minting Function ---
