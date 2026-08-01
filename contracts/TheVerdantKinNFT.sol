@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Strings.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v5.4.0/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v5.4.0/contracts/access/Ownable.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v5.4.0/contracts/utils/Strings.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v5.4.0/contracts/utils/ReentrancyGuard.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v5.4.0/contracts/token/ERC721/IERC721Receiver.sol";
 
 // ElectroSwap mint interface
 interface IMintable {
@@ -26,7 +26,7 @@ interface IFeeReflection {
 contract VerdantKinTest is ERC721Enumerable, Ownable, IMintable, ReentrancyGuard {
     using Strings for uint256;
 
-    uint256 public constant MAX_SUPPLY = 474;
+    uint256 public constant MAX_SUPPLY = 48;
     uint256 public mintPriceVar = 100000000000000000; // 0.1 ETN / $4 (18 decimals, assuming Wei-like unit)
     string public tokenBaseURI; // ipfs://QmZMPmh6qg31NqH5tFKoQ5k3uMDBNMxkQUS7tyqCZstUNv
 

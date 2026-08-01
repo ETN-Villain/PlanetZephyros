@@ -1,0 +1,65 @@
+{
+	"compiler": {
+		"version": "0.8.24+commit.e11b9ed9"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "owner",
+						"type": "address"
+					}
+				],
+				"name": "balanceOf",
+				"outputs": [
+					{
+						"internalType": "uint256",
+						"name": "",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/CLUBSpinVault/CLUBSpinVault.sol": "IERC721Like"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": false,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/CLUBSpinVault/CLUBSpinVault.sol": {
+			"keccak256": "0x3a7a52b6a69217b2c8b0944b38ccf86f6103eee73990d028858977ee7f940531",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://d9744f9c33e77754e360e6e131db308efea991c66f4150943bbc745e26e132e1",
+				"dweb:/ipfs/Qmef2o96CbwxJ7ZsXofY99UBGawZCCJjzPFjoayfZ3EUeF"
+			]
+		}
+	},
+	"version": 1
+}

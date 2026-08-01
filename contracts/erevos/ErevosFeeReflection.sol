@@ -1,25 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v5.4.0/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract AetherScionsFeeReflection is ReentrancyGuard, Ownable {
+contract AetherScionsFeeReflectionV2 is ReentrancyGuard, Ownable {
 
     // ========================
     // 🔸 Immutable Addresses
     // ========================
     address payable public immutable coreWallet; // 0x3Fd2e5B4AC0efF6DFDF2446abddAB3f66B425099 
-    address public immutable club;               // 0x94e8718354557079aD0eD6fD7000EBbE84Fa9E4E 
-    address public immutable coreToken;          // 0x1DeCBFcE31cA0633504a22Fd1D95D783b94d1128 
+    address public immutable club;               // 0xC9FC4AB00911793D99b5c7Bd01f01203C21D4131 
+    address public immutable coreToken;          // 0x309B916b3A90cb3E071697Ea9680e9217A30066f 
     address public immutable WETN;               // 0x138DAFbDA0CCB3d8E39C19edb0510Fc31b7C1c77 
     address public immutable DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD; 
     address public immutable BURN_ADDRESS = address(0); // Add: For true supply reduction
-    address public immutable erevosNFT;
+    address public immutable erevosNFT;         // 0x120E438b5A79E447F78C7857c8E55C3674349f05
     uint24 private immutable poolFee = 3000;     // For V3 club swap
 
     V3Router internal v3Router; // 0x5A3AB7e9f405250B36e7e0a4654c1052EADC1F07
-    UniswapV2Router internal v2Router; // 0x5410F10a5E214AF03EA601Ca8C76b665A786BCe1
+    UniswapV2Router internal v2Router; // 0x072D4706f9A383D5608BD14B09b41683cb95fFd7
 
     // ========================
     // 🔸 Whitelist for NFT Contracts
