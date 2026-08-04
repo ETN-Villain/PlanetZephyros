@@ -210,25 +210,49 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     ) external payable nonReentrant whenNotPaused returns (uint64 expiry) {
         require(wrappedOwner != address(0), "Zero wrapped owner");
 
-        IETHRegistrarController.Registration memory registration = buildRegistration(label, duration, secret, referrer);
+        (uint256 basePrice, uint256 brokerageFee, uint256 totalRequired) = _quoteRegistrationChecked(label, duration);
 
+        registrarController.register{value: basePrice}(buildRegistration(label, duration, secret, referrer));
+
+        expiry = _wrapAndActivate(label, wrappedOwner, ownerControlledFuses, expectedNode);
+
+        _settleRegistration(brokerageFee, totalRequired);
+
+        emit NameRegistered(msg.sender, label, basePrice, brokerageFee, wrappedOwner, ownerControlledFuses);
+    }
+
+    /// @dev Split out of registerName purely to keep that function's stack usage low enough to
+    /// compile without viaIR (Remix's default codegen). Mirrors quoteRegistration's math.
+    function _quoteRegistrationChecked(
+        string calldata label,
+        uint256 duration
+    ) internal view returns (uint256 basePrice, uint256 brokerageFee, uint256 totalRequired) {
         IPriceOracle.Price memory p = registrarController.rentPrice(label, duration);
-        uint256 basePrice = p.base + p.premium;
-        uint256 brokerageFee = (basePrice * brokerageBps) / BPS_DENOM;
-        uint256 totalRequired = basePrice + brokerageFee;
+        basePrice = p.base + p.premium;
+        brokerageFee = (basePrice * brokerageBps) / BPS_DENOM;
+        totalRequired = basePrice + brokerageFee;
         require(msg.value >= totalRequired, "Insufficient payment");
+    }
 
+    /// @dev Split out of registerName for the same reason as _quoteRegistrationChecked. This
+    /// contract is the raw registrant at this point; approve NameWrapper and wrap straight to
+    /// the buyer, then verify/activate expectedNode.
+    function _wrapAndActivate(
+        string calldata label,
+        address wrappedOwner,
+        uint16 ownerControlledFuses,
+        bytes32 expectedNode
+    ) internal returns (uint64 expiry) {
         uint256 tokenId = uint256(keccak256(bytes(label)));
-
-        registrarController.register{value: basePrice}(registration);
-
-        // This contract is now the raw registrant; approve NameWrapper and wrap straight to the buyer.
         baseRegistrar.approve(address(nameWrapper), tokenId);
         expiry = nameWrapper.wrapETH2LD(label, wrappedOwner, ownerControlledFuses, defaultResolver);
 
         require(_firstLabelMatches(nameWrapper.names(expectedNode), label), "expectedNode mismatch");
         domainActivated[expectedNode] = true;
+    }
 
+    /// @dev Split out of registerName for the same reason as _quoteRegistrationChecked.
+    function _settleRegistration(uint256 brokerageFee, uint256 totalRequired) internal {
         if (brokerageFee > 0) {
             (bool ok, ) = projectWallet.call{value: brokerageFee}("");
             require(ok, "Brokerage transfer failed");
@@ -239,8 +263,6 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
             (bool ok2, ) = payable(msg.sender).call{value: refund}("");
             require(ok2, "Refund failed");
         }
-
-        emit NameRegistered(msg.sender, label, basePrice, brokerageFee, wrappedOwner, ownerControlledFuses);
     }
 
     /// @notice Retroactively activates a name that was registered directly with
@@ -256,6 +278,18 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         require(!domainActivated[node], "Already activated");
         require(_firstLabelMatches(nameWrapper.names(node), label), "Label mismatch");
 
+        fee = _activationFee(node, label);
+        require(msg.value >= fee, "Insufficient payment");
+
+        domainActivated[node] = true;
+        _settleActivation(fee);
+
+        emit DomainActivated(node, msg.sender, fee);
+    }
+
+    /// @dev Split out of activateDomain to keep its stack usage low enough to compile without
+    /// viaIR (Remix's default codegen).
+    function _activationFee(bytes32 node, string calldata label) internal view returns (uint256 fee) {
         (, , uint64 expiry) = nameWrapper.getData(uint256(node));
         require(expiry > block.timestamp, "Name expired");
         uint256 remaining = uint256(expiry) - block.timestamp;
@@ -263,10 +297,10 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         IPriceOracle.Price memory p = registrarController.rentPrice(label, remaining);
         uint256 basePrice = p.base + p.premium;
         fee = (basePrice * brokerageBps) / BPS_DENOM;
-        require(msg.value >= fee, "Insufficient payment");
+    }
 
-        domainActivated[node] = true;
-
+    /// @dev Split out of activateDomain for the same reason as _activationFee.
+    function _settleActivation(uint256 fee) internal {
         if (fee > 0) {
             (bool ok, ) = projectWallet.call{value: fee}("");
             require(ok, "Activation fee transfer failed");
@@ -277,8 +311,6 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
             (bool ok2, ) = payable(msg.sender).call{value: refund}("");
             require(ok2, "Refund failed");
         }
-
-        emit DomainActivated(node, msg.sender, fee);
     }
 
     /// @dev Compares the first (leftmost) DNS-wire-encoded label in `encoded` against `label`,
@@ -376,31 +408,44 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         l.active = false; // effects before interactions
 
         if (l.kind == ListingKind.NewSubname) {
-            require(nameWrapper.canModifyName(l.parentNode, seller), "Seller lost parent control");
-            require(nameWrapper.isApprovedForAll(seller, address(this)), "Approval revoked");
-
-            uint64 expiry = l.expiry;
-            if (expiry == 0) {
-                (, , uint64 parentExpiry) = nameWrapper.getData(uint256(l.parentNode));
-                expiry = parentExpiry;
-            }
-
-            bytes32 subNode = nameWrapper.setSubnodeRecord(
-                l.parentNode,
-                l.label,
-                msg.sender,
-                defaultResolver,
-                0,
-                l.fuses,
-                expiry
-            );
-            domainActivated[subNode] = true;
+            _fulfillNewSubname(l, seller);
         } else {
             nameWrapper.safeTransferFrom(seller, msg.sender, l.tokenId, 1, "");
         }
 
-        uint256 sellerAmount = (price * SELLER_BPS) / BPS_DENOM;
-        uint256 burnAmount = price - sellerAmount;
+        (uint256 sellerAmount, uint256 burnAmount) = _settleSale(seller, price);
+
+        emit ListingSold(listingId, msg.sender, seller, price, sellerAmount, burnAmount);
+    }
+
+    /// @dev Split out of buyListing to keep its stack usage low enough to compile without viaIR
+    /// (Remix's default codegen).
+    function _fulfillNewSubname(Listing storage l, address seller) internal {
+        require(nameWrapper.canModifyName(l.parentNode, seller), "Seller lost parent control");
+        require(nameWrapper.isApprovedForAll(seller, address(this)), "Approval revoked");
+
+        uint64 expiry = l.expiry;
+        if (expiry == 0) {
+            (, , uint64 parentExpiry) = nameWrapper.getData(uint256(l.parentNode));
+            expiry = parentExpiry;
+        }
+
+        bytes32 subNode = nameWrapper.setSubnodeRecord(
+            l.parentNode,
+            l.label,
+            msg.sender,
+            defaultResolver,
+            0,
+            l.fuses,
+            expiry
+        );
+        domainActivated[subNode] = true;
+    }
+
+    /// @dev Split out of buyListing for the same reason as _fulfillNewSubname.
+    function _settleSale(address seller, uint256 price) internal returns (uint256 sellerAmount, uint256 burnAmount) {
+        sellerAmount = (price * SELLER_BPS) / BPS_DENOM;
+        burnAmount = price - sellerAmount;
         burnPool += burnAmount;
 
         (bool ok, ) = payable(seller).call{value: sellerAmount}("");
@@ -411,8 +456,6 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
             (bool ok2, ) = payable(msg.sender).call{value: refund}("");
             require(ok2, "Refund failed");
         }
-
-        emit ListingSold(listingId, msg.sender, seller, price, sellerAmount, burnAmount);
     }
 
     // ========================================================
