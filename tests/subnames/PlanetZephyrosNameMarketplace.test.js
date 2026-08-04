@@ -180,7 +180,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
       await commitAndWait(ctx, alice, label, secret, referrer);
 
       const [basePrice, brokerageFee, totalPrice] = await marketplace.quoteRegistration(label, ONE_YEAR);
-      expect(brokerageFee).to.equal((basePrice * 2000n) / 10000n);
+      expect(brokerageFee).to.equal((basePrice * 5000n) / 10000n);
 
       const overpay = totalPrice + ethers.parseEther("1");
       const projectBalanceBefore = await ethers.provider.getBalance(projectWallet.address);

@@ -46,7 +46,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     uint256 public constant MAX_BROKERAGE_BPS = 5000; // 50% hard ceiling
 
     /// @notice Brokerage surcharge on top of the registrar's own price, kept as project revenue.
-    uint256 public brokerageBps = 2000; // 20% default
+    uint256 public brokerageBps = 5000; // 50% default
 
     address public defaultResolver;
     address payable public projectWallet;
@@ -245,9 +245,9 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
 
     /// @notice Retroactively activates a name that was registered directly with
     /// ETHRegistrarController (bypassing this marketplace's brokerage), so its owner can start
-    /// using listSubname/listExistingName. Fee is 20%-by-brokerageBps of what the registrar
-    /// would charge today to register this exact name for however much time is actually left on
-    /// it (read from NameWrapper), so it can't be gamed by under-declaring duration.
+    /// using listSubname/listExistingName. Fee is brokerageBps of what the registrar would
+    /// charge today to register this exact name for however much time is actually left on it
+    /// (read from NameWrapper), so it can't be gamed by under-declaring duration.
     function activateDomain(
         bytes32 node,
         string calldata label
