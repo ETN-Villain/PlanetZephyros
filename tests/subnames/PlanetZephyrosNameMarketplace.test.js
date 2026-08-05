@@ -260,6 +260,69 @@ describe("PlanetZephyrosNameMarketplace", function () {
     });
   });
 
+  describe("renewName", function () {
+    it("quotes and renews correctly: extends expiry, pays brokerage, refunds overpayment", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, base, projectWallet, alice, bob } = ctx;
+      const label = "renewme";
+      await registerName(ctx, alice, label);
+
+      const tokenId = ethers.keccak256(ethers.toUtf8Bytes(label));
+      const expiryBefore = await base.nameExpires(tokenId);
+
+      const [basePrice, brokerageFee, totalPrice] = await marketplace.quoteRenewal(label, ONE_YEAR);
+      expect(basePrice).to.equal(BigInt(ONE_YEAR) * PRICE_PER_SECOND); // renewals never carry a premium
+      expect(brokerageFee).to.equal((basePrice * 5000n) / 10000n);
+
+      const overpay = totalPrice + ethers.parseEther("1");
+      const projectBalanceBefore = await ethers.provider.getBalance(projectWallet.address);
+      const bobBalanceBefore = await ethers.provider.getBalance(bob.address);
+
+      // Renewal is permissionless — bob (not the owner) renews alice's name.
+      const tx = await marketplace.connect(bob).renewName(label, ONE_YEAR, ethers.ZeroHash, { value: overpay });
+      const receipt = await tx.wait();
+      const gasCost = receipt.gasUsed * receipt.gasPrice;
+
+      const expiryAfter = await base.nameExpires(tokenId);
+      expect(expiryAfter).to.equal(expiryBefore + BigInt(ONE_YEAR)); // extends from current expiry, not from now
+
+      const projectBalanceAfter = await ethers.provider.getBalance(projectWallet.address);
+      expect(projectBalanceAfter - projectBalanceBefore).to.equal(brokerageFee);
+
+      const bobBalanceAfter = await ethers.provider.getBalance(bob.address);
+      expect(bobBalanceBefore - bobBalanceAfter).to.equal(totalPrice + gasCost);
+
+      await expect(tx)
+        .to.emit(marketplace, "NameRenewed")
+        .withArgs(bob.address, label, basePrice, brokerageFee, expiryAfter);
+    });
+
+    it("reverts on insufficient payment", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, alice } = ctx;
+      const label = "renewme2";
+      await registerName(ctx, alice, label);
+
+      const [, , totalPrice] = await marketplace.quoteRenewal(label, ONE_YEAR);
+      await expect(
+        marketplace.connect(alice).renewName(label, ONE_YEAR, ethers.ZeroHash, { value: totalPrice - 1n })
+      ).to.be.revertedWith("Insufficient payment");
+    });
+
+    it("reverts while paused", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, deployer, alice } = ctx;
+      const label = "renewme3";
+      await registerName(ctx, alice, label);
+      await marketplace.connect(deployer).setPaused(true);
+
+      const [, , totalPrice] = await marketplace.quoteRenewal(label, ONE_YEAR);
+      await expect(
+        marketplace.connect(alice).renewName(label, ONE_YEAR, ethers.ZeroHash, { value: totalPrice })
+      ).to.be.revertedWith("Marketplace paused");
+    });
+  });
+
   describe("setBrokerageBps", function () {
     it("only owner can set, respects ceiling", async function () {
       const { marketplace, deployer, alice } = await loadFixture(deployFixture);

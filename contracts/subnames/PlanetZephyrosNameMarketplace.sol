@@ -20,7 +20,6 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "./interfaces/IETHRegistrarController.sol";
@@ -28,6 +27,7 @@ import "./interfaces/IPriceOracle.sol";
 import "./interfaces/INameWrapperLite.sol";
 import "./interfaces/IBurnableERC20.sol";
 import "./interfaces/IUniswapV2Router02Lite.sol";
+import "./interfaces/IBaseRegistrarLite.sol";
 
 contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     // ========================
@@ -35,7 +35,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     // ========================
     IETHRegistrarController public immutable registrarController;
     INameWrapperLite public immutable nameWrapper;
-    IERC721 public immutable baseRegistrar;
+    IBaseRegistrarLite public immutable baseRegistrar;
 
     // ========================
     // Fee configuration
@@ -115,6 +115,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     event BuybackAndBurn(uint256 etnSpent, uint256 coreBurned);
     event TokensRescued(address token, uint256 amount, address to);
     event DomainActivated(bytes32 indexed node, address indexed payer, uint256 feePaid);
+    event NameRenewed(address indexed payer, string label, uint256 basePrice, uint256 brokerageFee, uint256 newExpiry);
 
     modifier whenNotPaused() {
         require(!paused, "Marketplace paused");
@@ -136,7 +137,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
 
         registrarController = IETHRegistrarController(_registrarController);
         nameWrapper = INameWrapperLite(_nameWrapper);
-        baseRegistrar = IERC721(_baseRegistrar);
+        baseRegistrar = IBaseRegistrarLite(_baseRegistrar);
         defaultResolver = _defaultResolver;
         projectWallet = _projectWallet;
     }
@@ -253,6 +254,65 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
 
     /// @dev Split out of registerName for the same reason as _quoteRegistrationChecked.
     function _settleRegistration(uint256 brokerageFee, uint256 totalRequired) internal {
+        if (brokerageFee > 0) {
+            (bool ok, ) = projectWallet.call{value: brokerageFee}("");
+            require(ok, "Brokerage transfer failed");
+        }
+
+        uint256 refund = msg.value - totalRequired;
+        if (refund > 0) {
+            (bool ok2, ) = payable(msg.sender).call{value: refund}("");
+            require(ok2, "Refund failed");
+        }
+    }
+
+    /// @notice Quotes the registrar's own renewal price plus this contract's brokerage fee.
+    /// Renewals never carry a premium (unlike fresh registrations) — the real registrar's
+    /// renew() only ever checks against price.base, so this mirrors that exactly rather than
+    /// reusing quoteRegistration's base+premium math.
+    function quoteRenewal(
+        string calldata label,
+        uint256 duration
+    ) external view returns (uint256 basePrice, uint256 brokerageFee, uint256 totalPrice) {
+        IPriceOracle.Price memory p = registrarController.rentPrice(label, duration);
+        basePrice = p.base;
+        brokerageFee = (basePrice * brokerageBps) / BPS_DENOM;
+        totalPrice = basePrice + brokerageFee;
+    }
+
+    /// @notice Renews a name via ETHRegistrarController, forwarding the exact base renewal
+    /// price and keeping a brokerage fee on top, same revenue model as registerName. Anyone can
+    /// renew any name (matching the real registrar's own renew(), which isn't ownership-gated).
+    function renewName(
+        string calldata label,
+        uint256 duration,
+        bytes32 referrer
+    ) external payable nonReentrant whenNotPaused returns (uint256 newExpiry) {
+        (uint256 basePrice, uint256 brokerageFee, uint256 totalRequired) = _quoteRenewalChecked(label, duration);
+
+        registrarController.renew{value: basePrice}(label, duration, referrer);
+        newExpiry = baseRegistrar.nameExpires(uint256(keccak256(bytes(label))));
+
+        _settleRenewal(brokerageFee, totalRequired);
+
+        emit NameRenewed(msg.sender, label, basePrice, brokerageFee, newExpiry);
+    }
+
+    /// @dev Split out of renewName for the same stack-depth reason as the registration helpers.
+    /// Mirrors quoteRenewal's math.
+    function _quoteRenewalChecked(
+        string calldata label,
+        uint256 duration
+    ) internal view returns (uint256 basePrice, uint256 brokerageFee, uint256 totalRequired) {
+        IPriceOracle.Price memory p = registrarController.rentPrice(label, duration);
+        basePrice = p.base;
+        brokerageFee = (basePrice * brokerageBps) / BPS_DENOM;
+        totalRequired = basePrice + brokerageFee;
+        require(msg.value >= totalRequired, "Insufficient payment");
+    }
+
+    /// @dev Split out of renewName for the same reason as _quoteRenewalChecked.
+    function _settleRenewal(uint256 brokerageFee, uint256 totalRequired) internal {
         if (brokerageFee > 0) {
             (bool ok, ) = projectWallet.call{value: brokerageFee}("");
             require(ok, "Brokerage transfer failed");

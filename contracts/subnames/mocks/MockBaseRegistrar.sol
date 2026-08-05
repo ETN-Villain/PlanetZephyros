@@ -27,6 +27,11 @@ contract MockBaseRegistrar is ERC721, Ownable {
         return nameExpires[id];
     }
 
+    function renew(uint256 id, uint256 duration) external onlyController returns (uint256) {
+        nameExpires[id] += duration;
+        return nameExpires[id];
+    }
+
     function available(uint256 id) external view returns (bool) {
         return nameExpires[id] < block.timestamp;
     }
