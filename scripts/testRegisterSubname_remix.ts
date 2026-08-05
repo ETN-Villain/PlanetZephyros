@@ -5,11 +5,11 @@
 
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0xFE8a448D84272Cb363F85B9B9E404Bde92350840' // TODO: update after redeploy
+const MARKETPLACE_ADDRESS = '0x09194a12fd71eC420449cc6709E3991a5103C69A'
 const NAME_WRAPPER_ADDRESS = '0x388f495A886644883F41a5958C11382e7c0D23F5'
 
 const ETH_NODE = '0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd' // namehash("etn")
-const PARENT_LABEL = 'zephyrostest1' // TODO: must match testSetSubnamePrice_remix.ts
+const PARENT_LABEL = 'zephyrostest3' // TODO: must match testSetSubnamePrice_remix.ts
 const SUB_LABEL = 'shop' // TODO: pick your own subname label
 
 const MARKETPLACE_ABI = [
