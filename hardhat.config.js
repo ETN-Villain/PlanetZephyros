@@ -21,19 +21,46 @@ const ELECTRONEUM_MAINNET_RPC_URL = process.env.NEXT_PUBLIC_ETN_MAINNET_RPC_URL 
 const DEPLOYER_PRIVATE_KEY = vars.get("DEPLOYER_PRIVATE_KEY", process.env.DEPLOYER_PRIVATE_KEY || "");
 const ELECTRONEUM_EXPLORER_API_KEY = process.env.ELECTRONEUM_EXPLORER_API_KEY || "not-required";
 
+// Electroneum's testnet EVM does not support Shanghai/Cancun opcodes (PUSH0, MCOPY) — confirmed
+// by an actual failed deployment ("invalid opcode: PUSH0"). PlanetZephyrosNameMarketplace.sol's
+// own dependency graph needs nothing newer than London (verified by isolating it from the rest
+// of this repo and compiling on its own); everything else in this project keeps the default
+// (some of it needs OZ v5 utils that use MCOPY), so only the marketplace contract is overridden
+// down to London — this is what actually gets deployed to Electroneum.
+//
+// NOTE: this must use the explicit `compilers: [...]` array form, not the `{version, settings}`
+// shorthand — Hardhat's config normalizer treats any object with a top-level `version` key as
+// shorthand and wraps it whole into compilers[0], silently discarding a sibling `overrides` key
+// in the process. Override values also need their own {version, settings} shape, not bare settings.
+const SOLC_VERSION = "0.8.24";
+
 module.exports = {
   paths: {
     tests: "./tests",
   },
   solidity: {
-    version: "0.8.24",
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 200,
+    compilers: [
+      {
+        version: SOLC_VERSION,
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+          viaIR: true,
+          evmVersion: "cancun",
+        },
       },
-      viaIR: true,
-      evmVersion: "cancun",
+    ],
+    overrides: {
+      "contracts/subnames/PlanetZephyrosNameMarketplace.sol": {
+        version: SOLC_VERSION,
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          viaIR: true,
+          evmVersion: "london",
+        },
+      },
     },
   },
   networks: {

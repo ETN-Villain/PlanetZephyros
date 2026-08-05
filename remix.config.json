@@ -116,7 +116,7 @@
         "runs": 200
       },
       "viaIR": true,
-      "evmVersion": "cancun",
+      "evmVersion": "london",
       "outputSelection": {
         "*": {
           "": [
