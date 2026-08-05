@@ -4,12 +4,12 @@
 
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0xFE8a448D84272Cb363F85B9B9E404Bde92350840'
+const MARKETPLACE_ADDRESS = '0x09194a12fd71eC420449cc6709E3991a5103C69A'
 const REGISTRAR_CONTROLLER_ADDRESS = '0x5BFb2958062Ac12d2019Ac1E69243DDbafCCc2c5'
 const NAME_WRAPPER_ADDRESS = '0x388f495A886644883F41a5958C11382e7c0D23F5'
 
 const ETH_NODE = '0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd' // namehash("etn")
-const LABEL = 'zephyrosdirect1'
+const LABEL = 'zephyrostest2'
 
 const CONTROLLER_ABI = [
   'function rentPrice(string label, uint256 duration) view returns (tuple(uint256 base, uint256 premium))',

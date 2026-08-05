@@ -12,7 +12,7 @@
 
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0x...' // TODO: fill in the freshly-redeployed address
+const MARKETPLACE_ADDRESS = '0x09194a12fd71eC420449cc6709E3991a5103C69A'
 const LABEL = 'zephyrostest1'
 const DURATION = 30 * 24 * 60 * 60 // 30 days
 
