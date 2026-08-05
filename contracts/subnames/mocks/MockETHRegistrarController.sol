@@ -72,7 +72,15 @@ contract MockETHRegistrarController is IETHRegistrarController {
         }
     }
 
-    function renew(string calldata, uint256, bytes32) external payable override {
-        revert("Not implemented in mock");
+    function renew(string calldata label, uint256 duration, bytes32 /* referrer */) external payable override {
+        IPriceOracle.Price memory price = rentPrice(label, duration);
+        if (msg.value < price.base) revert InsufficientValue();
+
+        bytes32 labelhash = keccak256(bytes(label));
+        base.renew(uint256(labelhash), duration);
+
+        if (msg.value > price.base) {
+            payable(msg.sender).transfer(msg.value - price.base);
+        }
     }
 }
