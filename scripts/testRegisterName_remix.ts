@@ -12,10 +12,10 @@ import { ethers } from 'ethers'
 const MARKETPLACE_ADDRESS = '0xFE8a448D84272Cb363F85B9B9E404Bde92350840'
 const REGISTRAR_CONTROLLER_ADDRESS = '0x5BFb2958062Ac12d2019Ac1E69243DDbafCCc2c5'
 
-// Same ETH_NODE constant hardcoded in the real deployed ETHRegistrarController.sol (it's
-// namehash("eth"), chain-independent — Electroneum's ENS fork kept the original ens-contracts
-// constant even though names here are branded differently).
-const ETH_NODE = '0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae'
+// namehash("etn") — confirmed directly on-chain: ENSRegistry.owner(this node) returns exactly
+// BaseRegistrarImplementation's address (0x7b787b31Ad58D563D7B3938b4bbfAB2c588624C5), while
+// namehash("eth") has no owner at all. Electroneum's ENS fork uses its own TLD, not "eth".
+const ETH_NODE = '0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd'
 
 const LABEL = 'zephyrostest1' // TODO: change if this is already taken
 const DURATION = 30 * 24 * 60 * 60 // 30 days — safely above the registrar's 28-day minimum
