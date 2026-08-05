@@ -2,7 +2,7 @@
 // freshly-redeployed contract (renewName didn't exist on the earlier deployment). Uses
 // "zephyrostest1" — already registered on the real shared ETHRegistrarController regardless of
 // which marketplace instance is live, since renewal is permissionless and doesn't depend on any
-// marketplace-internal state (no domainActivated check, unlike listSubname/listExistingName).
+// marketplace-internal state (no domainActivated check, unlike setSubnamePrice/listExistingName).
 //
 // Before running:
 //  1. Redeploy PlanetZephyrosNameMarketplace (deployMarketplace_remix.ts) and fill in its new

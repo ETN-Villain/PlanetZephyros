@@ -10,10 +10,11 @@ pragma solidity ^0.8.24;
  *     the registrar, wraps the resulting name via NameWrapper straight into the buyer's wallet,
  *     and keeps a configurable brokerage fee on top (100% project revenue).
  *
- *  2) Subname / resale marketplace: once a buyer owns a wrapped name, they can list subnames of
- *     it for sale (newly created on purchase via NameWrapper.setSubnodeRecord), or list an
- *     already-wrapped name/subname they own for resale. Every such sale splits 80% to the seller
- *     and 20% into a pool that is periodically swapped for CORE and burned via CORE.burn().
+ *  2) Subname self-serve registration + resale: once a buyer owns a wrapped name, they can set a
+ *     price for anyone to self-register a subname of it (buyer picks the label, created on
+ *     payment via NameWrapper.setSubnodeRecord), or list an already-wrapped name/subname they
+ *     own for resale. Every such sale splits 80% to the seller and 20% into a pool that is
+ *     periodically swapped for CORE and burned via CORE.burn().
  *
  * Website: https://planetzephyros.xyz/
  */
@@ -63,33 +64,30 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     // Domain activation
     // ========================
     /// @notice Nodes that have paid their way into the marketplace, either by registering
-    /// through registerName, by having a subname created through buyListing (fee already
+    /// through registerName, by having a subname created through registerSubname (fee already
     /// captured in that sale's 80/20 split), or via a retroactive activateDomain payment.
-    /// listSubname/listExistingName require this before a node can be used in the marketplace.
+    /// setSubnamePrice/listExistingName require this before a node can be used in the marketplace.
     mapping(bytes32 => bool) public domainActivated;
 
     // ========================
-    // Marketplace listings
+    // Marketplace listings (resale of an already-wrapped name/subname)
     // ========================
-    enum ListingKind {
-        NewSubname,
-        ExistingWrappedName
-    }
-
     struct Listing {
         address seller;
-        ListingKind kind;
-        bytes32 parentNode; // NewSubname only
-        string label; // NewSubname only
-        uint256 tokenId; // ExistingWrappedName only
-        uint32 fuses; // NewSubname only
-        uint64 expiry; // NewSubname only; 0 = inherit parent's expiry
+        uint256 tokenId;
         uint256 price;
         bool active;
     }
 
     uint256 public nextListingId = 1;
     mapping(uint256 => Listing) public listings;
+
+    // ========================
+    // Subname self-serve registration
+    // ========================
+    /// @notice Price (in wei) the parent domain owner charges for anyone to self-register a
+    /// subname under their domain. 0 means not for sale.
+    mapping(bytes32 => uint256) public subnamePrice;
 
     // ========================
     // Events
@@ -102,8 +100,9 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         address wrappedTo,
         uint16 fuses
     );
-    event SubnameListed(uint256 indexed listingId, address indexed seller, bytes32 parentNode, string label, uint256 price);
     event ExistingNameListed(uint256 indexed listingId, address indexed seller, uint256 indexed tokenId, uint256 price);
+    event SubnamePriceSet(bytes32 indexed parentNode, uint256 price);
+    event SubnameRegistered(bytes32 indexed parentNode, string label, address indexed buyer, uint256 price, uint256 sellerAmount, uint256 burnAmount);
     event ListingCancelled(uint256 indexed listingId);
     event ListingSold(uint256 indexed listingId, address indexed buyer, address indexed seller, uint256 price, uint256 sellerAmount, uint256 burnAmount);
     event BrokerageBpsUpdated(uint256 brokerageBps);
@@ -199,7 +198,8 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     /// waited out the registrar's minCommitmentAge. `expectedNode` is the wrapped name's ENS
     /// node (e.g. ethers.namehash("label.<tld>") computed off-chain) — this contract verifies it
     /// against NameWrapper's own record after wrapping, rather than assuming any particular
-    /// root/TLD itself, and marks it activated so listSubname/listExistingName work immediately.
+    /// root/TLD itself, and marks it activated so setSubnamePrice/listExistingName work
+    /// immediately.
     function registerName(
         string calldata label,
         uint256 duration,
@@ -327,7 +327,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
 
     /// @notice Retroactively activates a name that was registered directly with
     /// ETHRegistrarController (bypassing this marketplace's brokerage), so its owner can start
-    /// using listSubname/listExistingName. Fee is brokerageBps of what the registrar would
+    /// using setSubnamePrice/listExistingName. Fee is brokerageBps of what the registrar would
     /// charge today to register this exact name for however much time is actually left on it
     /// (read from NameWrapper), so it can't be gamed by under-declaring duration.
     function activateDomain(
@@ -387,39 +387,51 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     }
 
     // ========================================================
-    // Flow B: subname + resale marketplace
+    // Flow B: subname self-serve registration + resale marketplace
     // ========================================================
 
-    /// @notice Lists a brand-new subname of `parentNode` for sale. Caller must currently control
-    /// `parentNode` in NameWrapper and must have called
-    /// nameWrapper.setApprovalForAll(marketplace, true) so this contract can create the subname
-    /// on purchase.
-    function listSubname(
-        bytes32 parentNode,
-        string calldata label,
-        uint32 fuses,
-        uint64 expiry,
-        uint256 price
-    ) external whenNotPaused returns (uint256 listingId) {
-        require(price > 0, "Price required");
+    /// @notice Sets (or clears, with price=0) the price for self-serve subname registration
+    /// under a domain the caller owns/controls. Requires the domain to already be activated.
+    function setSubnamePrice(bytes32 parentNode, uint256 price) external whenNotPaused {
         require(domainActivated[parentNode], "Domain not activated");
         require(nameWrapper.canModifyName(parentNode, msg.sender), "Not parent owner/operator");
-        require(nameWrapper.isApprovedForAll(msg.sender, address(this)), "Marketplace not approved");
+        subnamePrice[parentNode] = price;
+        emit SubnamePriceSet(parentNode, price);
+    }
 
-        listingId = nextListingId++;
-        listings[listingId] = Listing({
-            seller: msg.sender,
-            kind: ListingKind.NewSubname,
-            parentNode: parentNode,
-            label: label,
-            tokenId: 0,
-            fuses: fuses,
-            expiry: expiry,
-            price: price,
-            active: true
-        });
+    /// @notice Self-serve subname registration: buyer picks the label, pays the parent owner's
+    /// set price, and the subname is created and wrapped directly to the buyer. Same 80/20
+    /// seller/burn split as buyListing, via _settleSale. The new subname is itself immediately
+    /// activated, so its new owner can set their own subname price / resell it right away.
+    function registerSubname(
+        bytes32 parentNode,
+        string calldata label
+    ) external payable nonReentrant whenNotPaused returns (bytes32 subNode) {
+        uint256 price = subnamePrice[parentNode];
+        require(price > 0, "Subnames not for sale");
+        require(msg.value >= price, "Insufficient payment");
 
-        emit SubnameListed(listingId, msg.sender, parentNode, label, price);
+        address seller = nameWrapper.ownerOf(uint256(parentNode));
+        subNode = _fulfillSubname(parentNode, label, seller);
+
+        (uint256 sellerAmount, uint256 burnAmount) = _settleSale(seller, price);
+
+        emit SubnameRegistered(parentNode, label, msg.sender, price, sellerAmount, burnAmount);
+    }
+
+    /// @dev Split out of registerSubname to keep its stack usage low enough to compile without
+    /// viaIR (Remix's default codegen).
+    function _fulfillSubname(
+        bytes32 parentNode,
+        string calldata label,
+        address seller
+    ) internal returns (bytes32 subNode) {
+        require(nameWrapper.canModifyName(parentNode, seller), "Parent owner lost control");
+        require(nameWrapper.isApprovedForAll(seller, address(this)), "Marketplace not approved by parent owner");
+
+        (, , uint64 expiry) = nameWrapper.getData(uint256(parentNode));
+        subNode = nameWrapper.setSubnodeRecord(parentNode, label, msg.sender, defaultResolver, 0, 0, expiry);
+        domainActivated[subNode] = true;
     }
 
     /// @notice Lists an already-wrapped name/subname the caller owns for resale. Caller must
@@ -433,12 +445,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         listingId = nextListingId++;
         listings[listingId] = Listing({
             seller: msg.sender,
-            kind: ListingKind.ExistingWrappedName,
-            parentNode: bytes32(0),
-            label: "",
             tokenId: tokenId,
-            fuses: 0,
-            expiry: 0,
             price: price,
             active: true
         });
@@ -454,10 +461,8 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         emit ListingCancelled(listingId);
     }
 
-    /// @notice Buys an active listing. For NewSubname listings this creates and wraps the
-    /// subname directly to the buyer; for ExistingWrappedName listings this transfers the
-    /// existing NameWrapper token from seller to buyer. Every sale splits 80% seller / 20% burn
-    /// pool.
+    /// @notice Buys an active listing, transferring the existing NameWrapper token from seller
+    /// to buyer. Every sale splits 80% seller / 20% burn pool.
     function buyListing(uint256 listingId) external payable nonReentrant whenNotPaused {
         Listing storage l = listings[listingId];
         require(l.active, "Not active");
@@ -467,42 +472,15 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         uint256 price = l.price;
         l.active = false; // effects before interactions
 
-        if (l.kind == ListingKind.NewSubname) {
-            _fulfillNewSubname(l, seller);
-        } else {
-            nameWrapper.safeTransferFrom(seller, msg.sender, l.tokenId, 1, "");
-        }
+        nameWrapper.safeTransferFrom(seller, msg.sender, l.tokenId, 1, "");
 
         (uint256 sellerAmount, uint256 burnAmount) = _settleSale(seller, price);
 
         emit ListingSold(listingId, msg.sender, seller, price, sellerAmount, burnAmount);
     }
 
-    /// @dev Split out of buyListing to keep its stack usage low enough to compile without viaIR
-    /// (Remix's default codegen).
-    function _fulfillNewSubname(Listing storage l, address seller) internal {
-        require(nameWrapper.canModifyName(l.parentNode, seller), "Seller lost parent control");
-        require(nameWrapper.isApprovedForAll(seller, address(this)), "Approval revoked");
-
-        uint64 expiry = l.expiry;
-        if (expiry == 0) {
-            (, , uint64 parentExpiry) = nameWrapper.getData(uint256(l.parentNode));
-            expiry = parentExpiry;
-        }
-
-        bytes32 subNode = nameWrapper.setSubnodeRecord(
-            l.parentNode,
-            l.label,
-            msg.sender,
-            defaultResolver,
-            0,
-            l.fuses,
-            expiry
-        );
-        domainActivated[subNode] = true;
-    }
-
-    /// @dev Split out of buyListing for the same reason as _fulfillNewSubname.
+    /// @dev Split out of buyListing/registerSubname for the same stack-depth reason as the other
+    /// flows.
     function _settleSale(address seller, uint256 price) internal returns (uint256 sellerAmount, uint256 burnAmount) {
         sellerAmount = (price * SELLER_BPS) / BPS_DENOM;
         burnAmount = price - sellerAmount;
