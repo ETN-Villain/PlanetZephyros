@@ -1,6 +1,6 @@
 // Test tx: registers a name DIRECTLY with ETHRegistrarController (bypassing the marketplace's
 // brokerage entirely), then calls activateDomain() on the marketplace to retroactively unlock it
-// for listSubname/listExistingName. Run with any funded MetaMask account on Electroneum Testnet.
+// for setSubnamePrice/listExistingName. Run with any funded MetaMask account on Electroneum Testnet.
 //
 // If a name is already registered+wrapped and you just need to (re)try the activateDomain step,
 // use testActivateDomain2_remix.ts instead — it skips straight to that and correctly bases the

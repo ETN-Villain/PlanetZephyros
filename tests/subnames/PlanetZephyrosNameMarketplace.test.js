@@ -336,26 +336,37 @@ describe("PlanetZephyrosNameMarketplace", function () {
     });
   });
 
-  describe("subname marketplace", function () {
-    it("listSubname reverts if caller doesn't control parent", async function () {
+  describe("subname pricing & self-serve registration", function () {
+    it("setSubnamePrice reverts if caller doesn't control parent", async function () {
       const ctx = await withRegisteredParent();
       const { marketplace, bob } = ctx;
       const parentNode = parentNodeFor("alice");
       await expect(
-        marketplace.connect(bob).listSubname(parentNode, "shop", 0, 0, ethers.parseEther("1"))
+        marketplace.connect(bob).setSubnamePrice(parentNode, ethers.parseEther("1"))
       ).to.be.revertedWith("Not parent owner/operator");
     });
 
-    it("listSubname reverts if marketplace not approved", async function () {
+    it("registerSubname reverts if marketplace not approved by parent owner", async function () {
       const ctx = await withRegisteredParent();
-      const { marketplace, alice } = ctx;
+      const { marketplace, alice, bob } = ctx;
       const parentNode = parentNodeFor("alice");
+      await marketplace.connect(alice).setSubnamePrice(parentNode, ethers.parseEther("1"));
       await expect(
-        marketplace.connect(alice).listSubname(parentNode, "shop", 0, 0, ethers.parseEther("1"))
-      ).to.be.revertedWith("Marketplace not approved");
+        marketplace.connect(bob).registerSubname(parentNode, "shop", { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Marketplace not approved by parent owner");
     });
 
-    it("lists and buys a new subname, splitting 80/20 and wrapping to the buyer", async function () {
+    it("registerSubname reverts if subnames aren't for sale (price unset)", async function () {
+      const ctx = await withRegisteredParent();
+      const { marketplace, wrapper, alice, bob } = ctx;
+      const parentNode = parentNodeFor("alice");
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      await expect(
+        marketplace.connect(bob).registerSubname(parentNode, "shop", { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Subnames not for sale");
+    });
+
+    it("registers a subname at the owner-set price, splitting 80/20 and wrapping to the buyer", async function () {
       const ctx = await withRegisteredParent();
       const { marketplace, wrapper, alice, bob } = ctx;
       const parentNode = parentNodeFor("alice");
@@ -365,73 +376,68 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const sellerAmount = (price * 8000n) / 10000n;
       const burnAmount = (price * 2000n) / 10000n;
 
-      await expect(marketplace.connect(alice).listSubname(parentNode, "shop", 0, 0, price))
-        .to.emit(marketplace, "SubnameListed")
-        .withArgs(1n, alice.address, parentNode, "shop", price);
+      await expect(marketplace.connect(alice).setSubnamePrice(parentNode, price))
+        .to.emit(marketplace, "SubnamePriceSet")
+        .withArgs(parentNode, price);
 
       const aliceBalanceBefore = await ethers.provider.getBalance(alice.address);
 
-      await expect(marketplace.connect(bob).buyListing(1, { value: price }))
-        .to.emit(marketplace, "ListingSold")
-        .withArgs(1n, bob.address, alice.address, price, sellerAmount, burnAmount);
+      const subNode = subNodeFor(parentNode, "shop");
+      await expect(marketplace.connect(bob).registerSubname(parentNode, "shop", { value: price }))
+        .to.emit(marketplace, "SubnameRegistered")
+        .withArgs(parentNode, "shop", bob.address, price, sellerAmount, burnAmount);
 
       const aliceBalanceAfter = await ethers.provider.getBalance(alice.address);
       expect(aliceBalanceAfter - aliceBalanceBefore).to.equal(sellerAmount);
       expect(await marketplace.burnPool()).to.equal(burnAmount);
-
-      const subNode = subNodeFor(parentNode, "shop");
       expect(await wrapper.ownerOf(BigInt(subNode))).to.equal(bob.address);
     });
 
-    it("refunds overpayment on buyListing", async function () {
+    it("refunds overpayment on registerSubname", async function () {
       const ctx = await withRegisteredParent();
       const { marketplace, wrapper, alice, bob } = ctx;
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       const price = ethers.parseEther("1");
-      await marketplace.connect(alice).listSubname(parentNode, "over", 0, 0, price);
+      await marketplace.connect(alice).setSubnamePrice(parentNode, price);
 
       const bobBalanceBefore = await ethers.provider.getBalance(bob.address);
-      const tx = await marketplace.connect(bob).buyListing(1, { value: price + ethers.parseEther("1") });
+      const tx = await marketplace
+        .connect(bob)
+        .registerSubname(parentNode, "over", { value: price + ethers.parseEther("1") });
       const receipt = await tx.wait();
       const gasCost = receipt.gasUsed * receipt.gasPrice;
       const bobBalanceAfter = await ethers.provider.getBalance(bob.address);
       expect(bobBalanceBefore - bobBalanceAfter).to.equal(price + gasCost);
     });
 
-    it("cannot buy the same listing twice", async function () {
+    it("registerSubname reverts on insufficient payment", async function () {
       const ctx = await withRegisteredParent();
-      const { marketplace, wrapper, alice, bob, carol } = ctx;
+      const { marketplace, wrapper, alice, bob } = ctx;
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       const price = ethers.parseEther("1");
-      await marketplace.connect(alice).listSubname(parentNode, "twice", 0, 0, price);
-      await marketplace.connect(bob).buyListing(1, { value: price });
-      await expect(marketplace.connect(carol).buyListing(1, { value: price })).to.be.revertedWith("Not active");
+      await marketplace.connect(alice).setSubnamePrice(parentNode, price);
+
+      await expect(
+        marketplace.connect(bob).registerSubname(parentNode, "cheap", { value: price - 1n })
+      ).to.be.revertedWith("Insufficient payment");
     });
 
-    it("cancelListing: seller or contract owner can cancel, others cannot", async function () {
+    it("setSubnamePrice can clear the price (0 disables sales)", async function () {
       const ctx = await withRegisteredParent();
-      const { marketplace, wrapper, alice, bob, deployer } = ctx;
+      const { marketplace, wrapper, alice, bob } = ctx;
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      await marketplace.connect(alice).setSubnamePrice(parentNode, ethers.parseEther("1"));
+      await marketplace.connect(alice).setSubnamePrice(parentNode, 0);
 
-      await marketplace.connect(alice).listSubname(parentNode, "cancelme", 0, 0, ethers.parseEther("1"));
-      await expect(marketplace.connect(bob).cancelListing(1)).to.be.revertedWith("Not authorised");
-
-      await marketplace.connect(alice).listSubname(parentNode, "cancelme2", 0, 0, ethers.parseEther("1"));
-      await marketplace.connect(deployer).cancelListing(2);
-      await expect(marketplace.connect(bob).buyListing(2, { value: ethers.parseEther("1") })).to.be.revertedWith(
-        "Not active"
-      );
-
-      await marketplace.connect(alice).cancelListing(1);
-      await expect(marketplace.connect(bob).buyListing(1, { value: ethers.parseEther("1") })).to.be.revertedWith(
-        "Not active"
-      );
+      await expect(
+        marketplace.connect(bob).registerSubname(parentNode, "shop", { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Subnames not for sale");
     });
 
-    it("resells an existing wrapped name (ExistingWrappedName listing)", async function () {
+    it("resells an existing wrapped name (listExistingName/buyListing)", async function () {
       const ctx = await withRegisteredParent();
       const { marketplace, wrapper, alice, bob } = ctx;
       const tokenId = BigInt(parentNodeFor("alice"));
@@ -456,13 +462,46 @@ describe("PlanetZephyrosNameMarketplace", function () {
       ).to.be.revertedWith("Not token owner");
     });
 
-    it("a subname created via buyListing is itself immediately activated for resale", async function () {
+    it("cannot buy the same existing-name listing twice", async function () {
+      const ctx = await withRegisteredParent();
+      const { marketplace, wrapper, alice, bob, carol } = ctx;
+      const tokenId = BigInt(parentNodeFor("alice"));
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      const price = ethers.parseEther("1");
+      await marketplace.connect(alice).listExistingName(tokenId, price);
+      await marketplace.connect(bob).buyListing(1, { value: price });
+      await expect(marketplace.connect(carol).buyListing(1, { value: price })).to.be.revertedWith("Not active");
+    });
+
+    it("cancelListing: seller or contract owner can cancel, others cannot", async function () {
+      const ctx = await withRegisteredParent();
+      const { marketplace, wrapper, alice, bob, deployer } = ctx;
+      const parentTokenId = BigInt(parentNodeFor("alice"));
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+
+      await marketplace.connect(alice).listExistingName(parentTokenId, ethers.parseEther("1"));
+      await expect(marketplace.connect(bob).cancelListing(1)).to.be.revertedWith("Not authorised");
+
+      await marketplace.connect(deployer).cancelListing(1);
+      await expect(
+        marketplace.connect(bob).buyListing(1, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Not active");
+
+      // alice still holds the token (never sold) — re-list and cancel it herself this time.
+      await marketplace.connect(alice).listExistingName(parentTokenId, ethers.parseEther("1"));
+      await marketplace.connect(alice).cancelListing(2);
+      await expect(
+        marketplace.connect(bob).buyListing(2, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Not active");
+    });
+
+    it("a subname created via registerSubname is itself immediately activated for resale", async function () {
       const ctx = await withRegisteredParent();
       const { marketplace, wrapper, alice, bob, carol } = ctx;
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
-      await marketplace.connect(alice).listSubname(parentNode, "shop", 0, 0, ethers.parseEther("1"));
-      await marketplace.connect(bob).buyListing(1, { value: ethers.parseEther("1") });
+      await marketplace.connect(alice).setSubnamePrice(parentNode, ethers.parseEther("1"));
+      await marketplace.connect(bob).registerSubname(parentNode, "shop", { value: ethers.parseEther("1") });
 
       const subNode = subNodeFor(parentNode, "shop");
       expect(await marketplace.domainActivated(subNode)).to.equal(true);
@@ -470,13 +509,13 @@ describe("PlanetZephyrosNameMarketplace", function () {
       await wrapper.connect(bob).setApprovalForAll(await marketplace.getAddress(), true);
       await expect(marketplace.connect(bob).listExistingName(BigInt(subNode), ethers.parseEther("2"))).to.not.be
         .reverted;
-      await marketplace.connect(carol).buyListing(2, { value: ethers.parseEther("2") });
+      await marketplace.connect(carol).buyListing(1, { value: ethers.parseEther("2") });
       expect(await wrapper.ownerOf(BigInt(subNode))).to.equal(carol.address);
     });
   });
 
   describe("domain activation (bypassing the marketplace at registration)", function () {
-    it("listSubname reverts on a directly-registered (never activated) domain", async function () {
+    it("setSubnamePrice reverts on a directly-registered (never activated) domain", async function () {
       const ctx = await loadFixture(deployFixture);
       const { marketplace, wrapper, alice } = ctx;
       const label = "direct";
@@ -485,7 +524,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
 
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       await expect(
-        marketplace.connect(alice).listSubname(node, "shop", 0, 0, ethers.parseEther("1"))
+        marketplace.connect(alice).setSubnamePrice(node, ethers.parseEther("1"))
       ).to.be.revertedWith("Domain not activated");
     });
 
@@ -538,7 +577,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
       );
     });
 
-    it("activateDomain: happy path unlocks listSubname, pays projectWallet, refunds excess", async function () {
+    it("activateDomain: happy path unlocks setSubnamePrice, pays projectWallet, refunds excess", async function () {
       const ctx = await loadFixture(deployFixture);
       const { marketplace, wrapper, projectWallet, alice } = ctx;
       const label = "direct6";
@@ -573,9 +612,9 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const aliceBalanceAfter = await ethers.provider.getBalance(alice.address);
       expect(aliceBalanceBefore - aliceBalanceAfter).to.equal(feePaid + gasCost);
 
-      // Now unlocked: listSubname should succeed.
+      // Now unlocked: setSubnamePrice should succeed.
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
-      await expect(marketplace.connect(alice).listSubname(node, "shop", 0, 0, ethers.parseEther("1"))).to.not.be
+      await expect(marketplace.connect(alice).setSubnamePrice(node, ethers.parseEther("1"))).to.not.be
         .reverted;
     });
 
@@ -600,8 +639,8 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       const price = ethers.parseEther("5");
-      await marketplace.connect(alice).listSubname(parentNode, "shop", 0, 0, price);
-      await marketplace.connect(bob).buyListing(1, { value: price });
+      await marketplace.connect(alice).setSubnamePrice(parentNode, price);
+      await marketplace.connect(bob).registerSubname(parentNode, "shop", { value: price });
       return ctx;
     }
 
