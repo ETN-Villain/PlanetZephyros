@@ -1,0 +1,55 @@
+// Deploys PlanetZephyrosNameMarketplace to Electroneum MAINNET via Remix's injected provider.
+//
+// Before running:
+//  1. In Remix, compile contracts/subnames/PlanetZephyrosNameMarketplace.sol with:
+//       Solidity: 0.8.24, Enable optimization (200 runs), EVM Version: london, Enable viaIR
+//     (Advanced Configurations in the Solidity Compiler plugin.)
+//     EVM Version MUST be london, not the Remix default — Electroneum testnet rejected Cancun
+//     opcodes (PUSH0/MCOPY) with "invalid opcode" on a past deploy attempt, which is why
+//     hardhat.config.js pins this specific contract to london for testnet. Using london here too
+//     costs nothing (it's a strict opcode subset of anything newer) and avoids re-risking the
+//     same failure if mainnet's EVM turns out to be equally behind.
+//  2. In "Deploy & Run Transactions", set Environment to "Injected Provider - MetaMask", with
+//     MetaMask connected to Electroneum Mainnet (chain id 52014).
+//  3. Double check PROJECT_WALLET and OWNER below before running — this is a real, immutable
+//     mainnet deployment, not testnet.
+//  4. Right click this file in the file explorer -> "Run".
+
+import { deploy } from './ethers-lib'
+
+// Electroneum MAINNET ENS-fork deployment addresses — provided directly by the user, verified
+// on-chain against https://rpc.ankr.com/electroneum (chain id 52014 confirmed) before being
+// written here: all four have real deployed bytecode, and NameWrapper.registrar() returns
+// exactly BASE_REGISTRAR below, confirming they're the genuine wired-together pair.
+const REGISTRAR_CONTROLLER: string = '0x5cD5CEFDc5925cA6A9A38D2AA810d5aeD360b21C' // ETHRegistrarController
+const NAME_WRAPPER: string = '0xd8F4B1A91469B05d9E0b15Cac4917Ee47b2A6f64' // NameWrapper
+const BASE_REGISTRAR: string = '0x5207496C1248BbD2AeeDd57Bde44dd9d4E9F1b59' // BaseRegistrarImplementation
+const DEFAULT_RESOLVER: string = '0xDb4A3Abb6703232e20a118a104e7f4EbB3e2738D' // PublicResolver
+
+// Same value used for both — a plain EOA, not a multisig. Real brokerage revenue and full
+// owner() admin control (fee rates, pause, CORE token/router wiring, rescueTokens) route through
+// this single key on mainnet.
+const PROJECT_WALLET: string = '0x3Fd2e5B4AC0efF6DFDF2446abddAB3f66B425099'
+const OWNER: string = '0x3Fd2e5B4AC0efF6DFDF2446abddAB3f66B425099'
+
+const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
+
+;(async () => {
+  try {
+    if (PROJECT_WALLET === ZERO_ADDRESS || OWNER === ZERO_ADDRESS) {
+      throw new Error('Set PROJECT_WALLET and OWNER at the top of this script before running.')
+    }
+
+    const result = await deploy('PlanetZephyrosNameMarketplace', [
+      REGISTRAR_CONTROLLER,
+      NAME_WRAPPER,
+      BASE_REGISTRAR,
+      DEFAULT_RESOLVER,
+      PROJECT_WALLET,
+      OWNER,
+    ])
+    console.log(`PlanetZephyrosNameMarketplace deployed to MAINNET: ${result.address}`)
+  } catch (e) {
+    console.log(e.message)
+  }
+})()

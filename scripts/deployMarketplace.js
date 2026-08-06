@@ -1,22 +1,27 @@
-// Deploys PlanetZephyrosNameMarketplace to Electroneum testnet and verifies it on the block
-// explorer. Run with:
+// Deploys PlanetZephyrosNameMarketplace to Electroneum testnet or mainnet and verifies it on the
+// block explorer. Run with:
 //   npx hardhat run scripts/deployMarketplace.js --network electroneumTestnet
+//   npx hardhat run scripts/deployMarketplace.js --network electroneumMainnet
 const hre = require("hardhat");
 
-function loadDeploymentAddresses() {
-  const raw = process.env.NEXT_PUBLIC_ETN_TESTNET_DEPLOYMENT_ADDRESSES;
+// Network-scoped on purpose — a deploy run with --network electroneumMainnet but a missing
+// MARKETPLACE_* override must NOT silently fall back to testnet addresses.
+function loadDeploymentAddresses(networkName) {
+  const envVar =
+    networkName === "electroneumMainnet"
+      ? "NEXT_PUBLIC_ETN_MAINNET_DEPLOYMENT_ADDRESSES"
+      : "NEXT_PUBLIC_ETN_TESTNET_DEPLOYMENT_ADDRESSES";
+  const raw = process.env[envVar];
   if (!raw) return {};
   try {
     return JSON.parse(raw);
   } catch (err) {
-    throw new Error(
-      `Failed to parse NEXT_PUBLIC_ETN_TESTNET_DEPLOYMENT_ADDRESSES as JSON: ${err.message}`
-    );
+    throw new Error(`Failed to parse ${envVar} as JSON: ${err.message}`);
   }
 }
 
 async function main() {
-  const deployed = loadDeploymentAddresses();
+  const deployed = loadDeploymentAddresses(hre.network.name);
 
   const registrarController =
     process.env.MARKETPLACE_REGISTRAR_CONTROLLER || deployed.ETHRegistrarController;
