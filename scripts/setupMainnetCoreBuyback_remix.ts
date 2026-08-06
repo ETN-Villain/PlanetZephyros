@@ -10,11 +10,12 @@
 // actual buyBackAndBurn call — the function itself needs no changes, it already computes the
 // real received amount via balance-delta.
 //
-// Fill in MARKETPLACE_ADDRESS with the real deployed mainnet address before running.
-
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0x...' // TODO: fill in after deployMarketplace_mainnet_remix.ts
+// Deployed and verified 2026-08-06: constructor args, brokerageBps (5000), and
+// minBrokerageFeePerYear (25,000 ETN) all confirmed matching on-chain, block 15188489,
+// tx 0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9.
+const MARKETPLACE_ADDRESS = '0x1191C7c0558F52a7282C00Bc477aA16187C1fE64'
 
 // Electroneum mainnet — Planet Zephyros (CORE) token + its own router, verified on-chain
 // 2026-08-06: name()/symbol() match, routerAddress matches contracts/PlanetZephyrosV1.sol exactly.
@@ -28,14 +29,8 @@ const MARKETPLACE_ABI = [
   'function swapRouter() view returns (address)',
 ]
 
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
-
 ;(async () => {
   try {
-    if (MARKETPLACE_ADDRESS === '0x...') {
-      throw new Error('Set MARKETPLACE_ADDRESS at the top of this script before running.')
-    }
-
     const provider = new ethers.providers.Web3Provider(web3Provider)
     const signer = provider.getSigner()
     const signerAddress = await signer.getAddress()

@@ -1,5 +1,10 @@
 // Deploys PlanetZephyrosNameMarketplace to Electroneum MAINNET via Remix's injected provider.
 //
+// DEPLOYED 2026-08-06: 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64, block 15188489, tx
+// 0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9. Constructor wiring and fee
+// config independently verified against on-chain state after deploy. Kept here for reference /
+// in case a redeploy is ever needed.
+//
 // Before running:
 //  1. In Remix, compile contracts/subnames/PlanetZephyrosNameMarketplace.sol with:
 //       Solidity: 0.8.24, Enable optimization (200 runs), EVM Version: london, Enable viaIR
