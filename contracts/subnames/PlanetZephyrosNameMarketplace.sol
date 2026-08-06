@@ -49,6 +49,13 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     /// @notice Brokerage surcharge on top of the registrar's own price, kept as project revenue.
     uint256 public brokerageBps = 5000; // 50% default
 
+    /// @notice Owner-adjustable floor under the brokerage fee, denominated per 365 days —
+    /// protects project revenue in ETN terms regardless of how ETN's own market value moves.
+    /// brokerageBps alone could compute an unacceptably small fee for cheap/short registrations;
+    /// this is applied as max(bps-based fee, minBrokerageFeePerYear * duration / 365 days).
+    /// Manually adjustable, not oracle-driven — the owner updates it if ETN's value moves.
+    uint256 public minBrokerageFeePerYear = 25_000 ether;
+
     address public defaultResolver;
     address payable public projectWallet;
 
@@ -66,7 +73,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     /// @notice Nodes that have paid their way into the marketplace, either by registering
     /// through registerName, by having a subname created through registerSubname (fee already
     /// captured in that sale's 80/20 split), or via a retroactive activateDomain payment.
-    /// setSubnamePrice/listExistingName require this before a node can be used in the marketplace.
+    /// setSubnamePricePerYear/listExistingName require this before a node can be used in the marketplace.
     mapping(bytes32 => bool) public domainActivated;
 
     // ========================
@@ -85,9 +92,11 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     // ========================
     // Subname self-serve registration
     // ========================
-    /// @notice Price (in wei) the parent domain owner charges for anyone to self-register a
-    /// subname under their domain. 0 means not for sale.
-    mapping(bytes32 => uint256) public subnamePrice;
+    uint256 public constant MAX_SUBNAME_DURATION = 100 * 365 days; // sanity ceiling only
+
+    /// @notice Price (in wei) per 365 days the parent domain owner charges for anyone to
+    /// self-register a subname under their domain. 0 means not for sale.
+    mapping(bytes32 => uint256) public subnamePricePerYear;
 
     // ========================
     // Events
@@ -101,11 +110,12 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         uint16 fuses
     );
     event ExistingNameListed(uint256 indexed listingId, address indexed seller, uint256 indexed tokenId, uint256 price);
-    event SubnamePriceSet(bytes32 indexed parentNode, uint256 price);
+    event SubnamePricePerYearSet(bytes32 indexed parentNode, uint256 pricePerYear);
     event SubnameRegistered(bytes32 indexed parentNode, string label, address indexed buyer, uint256 price, uint256 sellerAmount, uint256 burnAmount);
     event ListingCancelled(uint256 indexed listingId);
     event ListingSold(uint256 indexed listingId, address indexed buyer, address indexed seller, uint256 price, uint256 sellerAmount, uint256 burnAmount);
     event BrokerageBpsUpdated(uint256 brokerageBps);
+    event MinBrokerageFeePerYearUpdated(uint256 minBrokerageFeePerYear);
     event ProjectWalletUpdated(address projectWallet);
     event DefaultResolverUpdated(address resolver);
     event CoreTokenUpdated(address coreToken);
@@ -181,6 +191,15 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         return registrarController.makeCommitment(buildRegistration(label, duration, secret, referrer));
     }
 
+    /// @dev Shared by quoteRegistration/_quoteRegistrationChecked/quoteRenewal/
+    /// _quoteRenewalChecked — the brokerage fee is whichever is larger: the percentage-based fee,
+    /// or the per-year minimum floor scaled to this duration.
+    function _brokerageFeeFor(uint256 basePrice, uint256 duration) internal view returns (uint256) {
+        uint256 pctFee = (basePrice * brokerageBps) / BPS_DENOM;
+        uint256 minFee = (minBrokerageFeePerYear * duration) / 365 days;
+        return pctFee > minFee ? pctFee : minFee;
+    }
+
     /// @notice Quotes the registrar's own price plus this contract's brokerage fee.
     function quoteRegistration(
         string calldata label,
@@ -188,7 +207,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     ) external view returns (uint256 basePrice, uint256 brokerageFee, uint256 totalPrice) {
         IPriceOracle.Price memory p = registrarController.rentPrice(label, duration);
         basePrice = p.base + p.premium;
-        brokerageFee = (basePrice * brokerageBps) / BPS_DENOM;
+        brokerageFee = _brokerageFeeFor(basePrice, duration);
         totalPrice = basePrice + brokerageFee;
     }
 
@@ -198,7 +217,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     /// waited out the registrar's minCommitmentAge. `expectedNode` is the wrapped name's ENS
     /// node (e.g. ethers.namehash("label.<tld>") computed off-chain) — this contract verifies it
     /// against NameWrapper's own record after wrapping, rather than assuming any particular
-    /// root/TLD itself, and marks it activated so setSubnamePrice/listExistingName work
+    /// root/TLD itself, and marks it activated so setSubnamePricePerYear/listExistingName work
     /// immediately.
     function registerName(
         string calldata label,
@@ -230,7 +249,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     ) internal view returns (uint256 basePrice, uint256 brokerageFee, uint256 totalRequired) {
         IPriceOracle.Price memory p = registrarController.rentPrice(label, duration);
         basePrice = p.base + p.premium;
-        brokerageFee = (basePrice * brokerageBps) / BPS_DENOM;
+        brokerageFee = _brokerageFeeFor(basePrice, duration);
         totalRequired = basePrice + brokerageFee;
         require(msg.value >= totalRequired, "Insufficient payment");
     }
@@ -276,7 +295,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     ) external view returns (uint256 basePrice, uint256 brokerageFee, uint256 totalPrice) {
         IPriceOracle.Price memory p = registrarController.rentPrice(label, duration);
         basePrice = p.base;
-        brokerageFee = (basePrice * brokerageBps) / BPS_DENOM;
+        brokerageFee = _brokerageFeeFor(basePrice, duration);
         totalPrice = basePrice + brokerageFee;
     }
 
@@ -306,7 +325,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     ) internal view returns (uint256 basePrice, uint256 brokerageFee, uint256 totalRequired) {
         IPriceOracle.Price memory p = registrarController.rentPrice(label, duration);
         basePrice = p.base;
-        brokerageFee = (basePrice * brokerageBps) / BPS_DENOM;
+        brokerageFee = _brokerageFeeFor(basePrice, duration);
         totalRequired = basePrice + brokerageFee;
         require(msg.value >= totalRequired, "Insufficient payment");
     }
@@ -327,7 +346,7 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
 
     /// @notice Retroactively activates a name that was registered directly with
     /// ETHRegistrarController (bypassing this marketplace's brokerage), so its owner can start
-    /// using setSubnamePrice/listExistingName. Fee is brokerageBps of what the registrar would
+    /// using setSubnamePricePerYear/listExistingName. Fee is brokerageBps of what the registrar would
     /// charge today to register this exact name for however much time is actually left on it
     /// (read from NameWrapper), so it can't be gamed by under-declaring duration.
     function activateDomain(
@@ -390,29 +409,42 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     // Flow B: subname self-serve registration + resale marketplace
     // ========================================================
 
-    /// @notice Sets (or clears, with price=0) the price for self-serve subname registration
-    /// under a domain the caller owns/controls. Requires the domain to already be activated.
-    function setSubnamePrice(bytes32 parentNode, uint256 price) external whenNotPaused {
+    /// @notice Sets (or clears, with pricePerYear=0) the per-year price for self-serve subname
+    /// registration under a domain the caller owns/controls. Requires the domain to already be
+    /// activated.
+    function setSubnamePricePerYear(bytes32 parentNode, uint256 pricePerYear) external whenNotPaused {
         require(domainActivated[parentNode], "Domain not activated");
         require(nameWrapper.canModifyName(parentNode, msg.sender), "Not parent owner/operator");
-        subnamePrice[parentNode] = price;
-        emit SubnamePriceSet(parentNode, price);
+        subnamePricePerYear[parentNode] = pricePerYear;
+        emit SubnamePricePerYearSet(parentNode, pricePerYear);
     }
 
-    /// @notice Self-serve subname registration: buyer picks the label, pays the parent owner's
-    /// set price, and the subname is created and wrapped directly to the buyer. Same 80/20
-    /// seller/burn split as buyListing, via _settleSale. The new subname is itself immediately
-    /// activated, so its new owner can set their own subname price / resell it right away.
+    /// @notice Quotes what `duration` seconds of a subname under `parentNode` costs at its
+    /// current per-year rate. No external calls, so registerSubname can call this directly
+    /// (unlike quoteRegistration/_quoteRegistrationChecked's duplication, which exists
+    /// specifically because that math calls out to registrarController.rentPrice and needs the
+    /// stack headroom).
+    function quoteSubname(bytes32 parentNode, uint256 duration) public view returns (uint256 price) {
+        price = (subnamePricePerYear[parentNode] * duration) / 365 days;
+    }
+
+    /// @notice Self-serve subname registration: buyer picks the label and duration, pays the
+    /// parent owner's per-year rate scaled to that duration, and the subname is created and
+    /// wrapped directly to the buyer. Same 80/20 seller/burn split as buyListing, via
+    /// _settleSale. The new subname is itself immediately activated, so its new owner can set
+    /// their own subname price / resell it right away.
     function registerSubname(
         bytes32 parentNode,
-        string calldata label
+        string calldata label,
+        uint256 duration
     ) external payable nonReentrant whenNotPaused returns (bytes32 subNode) {
-        uint256 price = subnamePrice[parentNode];
+        require(duration > 0 && duration <= MAX_SUBNAME_DURATION, "Invalid duration");
+        uint256 price = quoteSubname(parentNode, duration);
         require(price > 0, "Subnames not for sale");
         require(msg.value >= price, "Insufficient payment");
 
         address seller = nameWrapper.ownerOf(uint256(parentNode));
-        subNode = _fulfillSubname(parentNode, label, seller);
+        subNode = _fulfillSubname(parentNode, label, seller, duration);
 
         (uint256 sellerAmount, uint256 burnAmount) = _settleSale(seller, price);
 
@@ -424,12 +456,16 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
     function _fulfillSubname(
         bytes32 parentNode,
         string calldata label,
-        address seller
+        address seller,
+        uint256 duration
     ) internal returns (bytes32 subNode) {
         require(nameWrapper.canModifyName(parentNode, seller), "Parent owner lost control");
         require(nameWrapper.isApprovedForAll(seller, address(this)), "Marketplace not approved by parent owner");
 
-        (, , uint64 expiry) = nameWrapper.getData(uint256(parentNode));
+        (, , uint64 parentExpiry) = nameWrapper.getData(uint256(parentNode));
+        uint64 expiry = uint64(block.timestamp + duration);
+        require(expiry <= parentExpiry, "Duration exceeds parent expiry");
+
         subNode = nameWrapper.setSubnodeRecord(parentNode, label, msg.sender, defaultResolver, 0, 0, expiry);
         domainActivated[subNode] = true;
     }
@@ -539,6 +575,11 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         require(_brokerageBps <= MAX_BROKERAGE_BPS, "Brokerage too high");
         brokerageBps = _brokerageBps;
         emit BrokerageBpsUpdated(_brokerageBps);
+    }
+
+    function setMinBrokerageFeePerYear(uint256 _minBrokerageFeePerYear) external onlyOwner {
+        minBrokerageFeePerYear = _minBrokerageFeePerYear;
+        emit MinBrokerageFeePerYearUpdated(_minBrokerageFeePerYear);
     }
 
     function setProjectWallet(address payable _projectWallet) external onlyOwner {
