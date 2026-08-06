@@ -1,6 +1,6 @@
 // Test tx: registers a name DIRECTLY with ETHRegistrarController (bypassing the marketplace's
 // brokerage entirely), then calls activateDomain() on the marketplace to retroactively unlock it
-// for setSubnamePrice/listExistingName. Run with any funded MetaMask account on Electroneum Testnet.
+// for setSubnamePricePerYear/listExistingName. Run with any funded MetaMask account on Electroneum Testnet.
 //
 // If a name is already registered+wrapped and you just need to (re)try the activateDomain step,
 // use testActivateDomain2_remix.ts instead — it skips straight to that and correctly bases the
@@ -8,7 +8,7 @@
 
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0x09194a12fd71eC420449cc6709E3991a5103C69A'
+const MARKETPLACE_ADDRESS = '0x9cDFC0b2c5eB90E5AD00d0781d3e19Ad61fDF454'
 const REGISTRAR_CONTROLLER_ADDRESS = '0x5BFb2958062Ac12d2019Ac1E69243DDbafCCc2c5'
 const NAME_WRAPPER_ADDRESS = '0x388f495A886644883F41a5958C11382e7c0D23F5'
 const BASE_REGISTRAR_ADDRESS = '0x7b787b31Ad58D563D7B3938b4bbfAB2c588624C5'

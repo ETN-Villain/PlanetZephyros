@@ -5,7 +5,7 @@
 
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0x09194a12fd71eC420449cc6709E3991a5103C69A'
+const MARKETPLACE_ADDRESS = '0x9cDFC0b2c5eB90E5AD00d0781d3e19Ad61fDF454'
 const CORE_TOKEN_ADDRESS = '0x...' // TODO: from deployMockCoreAndRouter_remix.ts output
 const ROUTER_ADDRESS = '0x...' // TODO: from deployMockCoreAndRouter_remix.ts output
 

@@ -1,24 +1,24 @@
-// Test tx: sets a price for self-serve subname registration under a domain, then approves the
-// marketplace on NameWrapper so registerSubname() can actually create subnames on payment. Run
-// this with the domain owner's wallet active in MetaMask (whoever ran testRegisterName_remix.ts
-// or testActivateDomain2_remix.ts for PARENT_LABEL below).
+// Test tx: sets a per-year price for self-serve subname registration under a domain, then
+// approves the marketplace on NameWrapper so registerSubname() can actually create subnames on
+// payment. Run this with the domain owner's wallet active in MetaMask (whoever ran
+// testRegisterName_remix.ts or testActivateDomain2_remix.ts for PARENT_LABEL below).
 //
 // After it finishes, switch MetaMask to a different account and run testRegisterSubname_remix.ts
 // against the same PARENT_LABEL/SUB_LABEL.
 
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0x09194a12fd71eC420449cc6709E3991a5103C69A'
+const MARKETPLACE_ADDRESS = '0x9cDFC0b2c5eB90E5AD00d0781d3e19Ad61fDF454' // TODO: update after redeploy
 const NAME_WRAPPER_ADDRESS = '0x388f495A886644883F41a5958C11382e7c0D23F5'
 
 const ETH_NODE = '0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd' // namehash("etn")
 const PARENT_LABEL = 'zephyrostest3' // TODO: an already-activated domain you own
-const PRICE = ethers.utils.parseEther('0.1') // TODO: adjust price if desired
+const PRICE_PER_YEAR = ethers.utils.parseEther('0.1') // TODO: adjust price if desired
 
 const MARKETPLACE_ABI = [
-  'function setSubnamePrice(bytes32 parentNode, uint256 price)',
+  'function setSubnamePricePerYear(bytes32 parentNode, uint256 pricePerYear)',
   'function domainActivated(bytes32 node) view returns (bool)',
-  'event SubnamePriceSet(bytes32 indexed parentNode, uint256 price)',
+  'event SubnamePricePerYearSet(bytes32 indexed parentNode, uint256 pricePerYear)',
 ]
 const NAME_WRAPPER_ABI = [
   'function isApprovedForAll(address account, address operator) view returns (bool)',
@@ -58,14 +58,14 @@ function computeNode(label: string): string {
       console.log('Marketplace already approved.')
     }
 
-    console.log(`Setting subname price for "${PARENT_LABEL}.etn" to ${ethers.utils.formatEther(PRICE)} ETN...`)
-    const priceTx = await marketplace.setSubnamePrice(parentNode, PRICE)
+    console.log(`Setting subname price for "${PARENT_LABEL}.etn" to ${ethers.utils.formatEther(PRICE_PER_YEAR)} ETN/year...`)
+    const priceTx = await marketplace.setSubnamePricePerYear(parentNode, PRICE_PER_YEAR)
     const receipt = await priceTx.wait()
 
-    const event = receipt.events?.find((e: any) => e.event === 'SubnamePriceSet')
+    const event = receipt.events?.find((e: any) => e.event === 'SubnamePricePerYearSet')
     console.log(`Price set! tx: ${receipt.transactionHash}`)
     if (event) {
-      console.log('price:', ethers.utils.formatEther(event.args.price), 'ETN')
+      console.log('pricePerYear:', ethers.utils.formatEther(event.args.pricePerYear), 'ETN')
     }
     console.log('Switch MetaMask to a buyer account, then run testRegisterSubname_remix.ts.')
   } catch (e) {

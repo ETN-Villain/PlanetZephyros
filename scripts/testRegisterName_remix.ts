@@ -9,7 +9,7 @@
 
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0x09194a12fd71eC420449cc6709E3991a5103C69A'
+const MARKETPLACE_ADDRESS = '0x9cDFC0b2c5eB90E5AD00d0781d3e19Ad61fDF454'
 const REGISTRAR_CONTROLLER_ADDRESS = '0x5BFb2958062Ac12d2019Ac1E69243DDbafCCc2c5'
 
 // namehash("etn") — confirmed directly on-chain: ENSRegistry.owner(this node) returns exactly

@@ -1,20 +1,21 @@
-// Test tx: self-registers a subname under a domain that has a price set (via
-// testSetSubnamePrice_remix.ts), picking SUB_LABEL and paying the domain owner's price. Run this
-// with a buyer's wallet active in MetaMask (switch accounts after running
-// testSetSubnamePrice_remix.ts as the domain owner).
+// Test tx: self-registers a subname under a domain that has a per-year price set (via
+// testSetSubnamePricePerYear_remix.ts), picking SUB_LABEL and DURATION and paying the domain
+// owner's rate scaled to that duration. Run this with a buyer's wallet active in MetaMask (switch
+// accounts after running testSetSubnamePricePerYear_remix.ts as the domain owner).
 
 import { ethers } from 'ethers'
 
-const MARKETPLACE_ADDRESS = '0x09194a12fd71eC420449cc6709E3991a5103C69A'
+const MARKETPLACE_ADDRESS = '0x9cDFC0b2c5eB90E5AD00d0781d3e19Ad61fDF454' // TODO: update after redeploy
 const NAME_WRAPPER_ADDRESS = '0x388f495A886644883F41a5958C11382e7c0D23F5'
 
 const ETH_NODE = '0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd' // namehash("etn")
-const PARENT_LABEL = 'zephyrostest3' // TODO: must match testSetSubnamePrice_remix.ts
-const SUB_LABEL = 'shop' // TODO: pick your own subname label
+const PARENT_LABEL = 'zephyrostest3' // TODO: must match testSetSubnamePricePerYear_remix.ts
+const SUB_LABEL = 'shop2' // TODO: pick your own subname label
+const DURATION = 90 * 24 * 60 * 60 // 90 days — TODO: must not exceed the parent's remaining time
 
 const MARKETPLACE_ABI = [
-  'function subnamePrice(bytes32 parentNode) view returns (uint256)',
-  'function registerSubname(bytes32 parentNode, string label) payable returns (bytes32 subNode)',
+  'function quoteSubname(bytes32 parentNode, uint256 duration) view returns (uint256 price)',
+  'function registerSubname(bytes32 parentNode, string label, uint256 duration) payable returns (bytes32 subNode)',
   'event SubnameRegistered(bytes32 indexed parentNode, string label, address indexed buyer, uint256 price, uint256 sellerAmount, uint256 burnAmount)',
 ]
 const NAME_WRAPPER_ABI = ['function ownerOf(uint256 id) view returns (address)']
@@ -40,11 +41,11 @@ function computeSubnode(parentNode: string, label: string): string {
     const nameWrapper = new ethers.Contract(NAME_WRAPPER_ADDRESS, NAME_WRAPPER_ABI, signer)
 
     const parentNode = computeNode(PARENT_LABEL)
-    const price = await marketplace.subnamePrice(parentNode)
+    const price = await marketplace.quoteSubname(parentNode, DURATION)
     if (price.isZero()) {
-      throw new Error(`"${PARENT_LABEL}.etn" isn't selling subnames — run testSetSubnamePrice_remix.ts first.`)
+      throw new Error(`"${PARENT_LABEL}.etn" isn't selling subnames — run testSetSubnamePricePerYear_remix.ts first.`)
     }
-    console.log(`Price for "${SUB_LABEL}.${PARENT_LABEL}.etn": ${ethers.utils.formatEther(price)} ETN`)
+    console.log(`Price for "${SUB_LABEL}.${PARENT_LABEL}.etn" (${DURATION}s): ${ethers.utils.formatEther(price)} ETN`)
 
     const subNode = computeSubnode(parentNode, SUB_LABEL)
     const existingOwner = await nameWrapper.ownerOf(subNode)
@@ -53,7 +54,7 @@ function computeSubnode(parentNode: string, label: string): string {
     }
 
     console.log(`Registering "${SUB_LABEL}.${PARENT_LABEL}.etn"...`)
-    const registerTx = await marketplace.registerSubname(parentNode, SUB_LABEL, { value: price })
+    const registerTx = await marketplace.registerSubname(parentNode, SUB_LABEL, DURATION, { value: price })
     const receipt = await registerTx.wait()
 
     const event = receipt.events?.find((e: any) => e.event === 'SubnameRegistered')

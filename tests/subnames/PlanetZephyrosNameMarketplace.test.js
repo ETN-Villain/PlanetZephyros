@@ -49,6 +49,12 @@ describe("PlanetZephyrosNameMarketplace", function () {
       deployer.address
     );
 
+    // Neutralize the per-year minimum brokerage fee floor for the default fixture — the mock's
+    // tiny PRICE_PER_SECOND makes bps-based fees far smaller than any realistic floor, so most
+    // tests want pure bps-based behavior. The "minBrokerageFeePerYear" describe block below sets
+    // its own nonzero floor explicitly to test the floor itself.
+    await marketplace.connect(deployer).setMinBrokerageFeePerYear(0);
+
     return {
       deployer,
       projectWallet,
@@ -65,20 +71,20 @@ describe("PlanetZephyrosNameMarketplace", function () {
     };
   }
 
-  async function commitAndWait(ctx, signer, label, secret, referrer) {
-    const commitment = await ctx.marketplace.computeCommitment(label, ONE_YEAR, secret, referrer);
+  async function commitAndWait(ctx, signer, label, secret, referrer, duration = ONE_YEAR) {
+    const commitment = await ctx.marketplace.computeCommitment(label, duration, secret, referrer);
     await ctx.controller.connect(signer).commit(commitment);
     await time.increase(61);
   }
 
-  async function registerName(ctx, signer, label) {
+  async function registerName(ctx, signer, label, duration = ONE_YEAR) {
     const secret = ethers.hexlify(ethers.randomBytes(32));
     const referrer = ethers.ZeroHash;
-    await commitAndWait(ctx, signer, label, secret, referrer);
-    const [basePrice, brokerageFee, totalPrice] = await ctx.marketplace.quoteRegistration(label, ONE_YEAR);
+    await commitAndWait(ctx, signer, label, secret, referrer, duration);
+    const [basePrice, brokerageFee, totalPrice] = await ctx.marketplace.quoteRegistration(label, duration);
     await ctx.marketplace
       .connect(signer)
-      .registerName(label, ONE_YEAR, secret, referrer, signer.address, 0, parentNodeFor(label), {
+      .registerName(label, duration, secret, referrer, signer.address, 0, parentNodeFor(label), {
         value: totalPrice,
       });
     return { basePrice, brokerageFee, totalPrice, secret, referrer };
@@ -113,9 +119,13 @@ describe("PlanetZephyrosNameMarketplace", function () {
     return { node: parentNodeFor(label) };
   }
 
-  async function withRegisteredParent(label = "alice") {
+  // Defaults to a 5-year parent registration so ONE_YEAR-duration subname tests have headroom —
+  // real time elapses between parent registration and a subname test's registerSubname call
+  // (commitAndWait's time.increase(61) alone), so a parent registered for exactly ONE_YEAR would
+  // no longer have a full ONE_YEAR remaining by the time a subname test runs.
+  async function withRegisteredParent(label = "alice", duration = 5 * ONE_YEAR) {
     const ctx = await loadFixture(deployFixture);
-    await registerName(ctx, ctx.alice, label);
+    await registerName(ctx, ctx.alice, label, duration);
     return ctx;
   }
 
@@ -336,13 +346,84 @@ describe("PlanetZephyrosNameMarketplace", function () {
     });
   });
 
+  describe("minBrokerageFeePerYear", function () {
+    it("defaults to 25,000 ETN on a fresh deployment", async function () {
+      const { controller, wrapper, base, projectWallet, deployer, defaultResolver } = await loadFixture(deployFixture);
+      const Marketplace = await ethers.getContractFactory("PlanetZephyrosNameMarketplace");
+      const fresh = await Marketplace.deploy(
+        await controller.getAddress(),
+        await wrapper.getAddress(),
+        await base.getAddress(),
+        defaultResolver,
+        projectWallet.address,
+        deployer.address
+      );
+      expect(await fresh.minBrokerageFeePerYear()).to.equal(ethers.parseEther("25000"));
+    });
+
+    it("only owner can set it", async function () {
+      const { marketplace, alice } = await loadFixture(deployFixture);
+      await expect(marketplace.connect(alice).setMinBrokerageFeePerYear(0)).to.be.revertedWithCustomError(
+        marketplace,
+        "OwnableUnauthorizedAccount"
+      );
+    });
+
+    it("floors the brokerage fee when the bps-based fee would be lower, scaling per year", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, deployer, alice } = ctx;
+      await marketplace.connect(deployer).setMinBrokerageFeePerYear(ethers.parseEther("25000"));
+
+      const label = "floortest";
+      const secret = ethers.hexlify(ethers.randomBytes(32));
+      const referrer = ethers.ZeroHash;
+      await commitAndWait(ctx, alice, label, secret, referrer);
+
+      const [basePrice, brokerageFee, totalPrice] = await marketplace.quoteRegistration(label, ONE_YEAR);
+      const bpsFee = (basePrice * 5000n) / 10000n;
+      expect(bpsFee).to.be.lt(ethers.parseEther("25000")); // mock pricing is far below the floor
+      expect(brokerageFee).to.equal(ethers.parseEther("25000"));
+      expect(totalPrice).to.equal(basePrice + brokerageFee);
+
+      // 2 years should floor at 2x, not the flat 1-year amount.
+      const [, brokerageFee2yr] = await marketplace.quoteRegistration(label, 2 * ONE_YEAR);
+      expect(brokerageFee2yr).to.equal(ethers.parseEther("50000"));
+    });
+
+    it("does not override the bps-based fee when it already exceeds the floor", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, deployer, alice } = ctx;
+      // A tiny floor that the mock's bps-based fee will comfortably exceed.
+      await marketplace.connect(deployer).setMinBrokerageFeePerYear(1n);
+
+      const label = "abovefloor";
+      const secret = ethers.hexlify(ethers.randomBytes(32));
+      const referrer = ethers.ZeroHash;
+      await commitAndWait(ctx, alice, label, secret, referrer);
+
+      const [basePrice, brokerageFee] = await marketplace.quoteRegistration(label, ONE_YEAR);
+      expect(brokerageFee).to.equal((basePrice * 5000n) / 10000n);
+    });
+
+    it("also applies to renewals", async function () {
+      const ctx = await loadFixture(deployFixture);
+      const { marketplace, deployer, alice } = ctx;
+      const label = "renewfloor";
+      await registerName(ctx, alice, label);
+      await marketplace.connect(deployer).setMinBrokerageFeePerYear(ethers.parseEther("25000"));
+
+      const [, brokerageFee] = await marketplace.quoteRenewal(label, ONE_YEAR);
+      expect(brokerageFee).to.equal(ethers.parseEther("25000"));
+    });
+  });
+
   describe("subname pricing & self-serve registration", function () {
-    it("setSubnamePrice reverts if caller doesn't control parent", async function () {
+    it("setSubnamePricePerYear reverts if caller doesn't control parent", async function () {
       const ctx = await withRegisteredParent();
       const { marketplace, bob } = ctx;
       const parentNode = parentNodeFor("alice");
       await expect(
-        marketplace.connect(bob).setSubnamePrice(parentNode, ethers.parseEther("1"))
+        marketplace.connect(bob).setSubnamePricePerYear(parentNode, ethers.parseEther("1"))
       ).to.be.revertedWith("Not parent owner/operator");
     });
 
@@ -350,9 +431,9 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const ctx = await withRegisteredParent();
       const { marketplace, alice, bob } = ctx;
       const parentNode = parentNodeFor("alice");
-      await marketplace.connect(alice).setSubnamePrice(parentNode, ethers.parseEther("1"));
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, ethers.parseEther("1"));
       await expect(
-        marketplace.connect(bob).registerSubname(parentNode, "shop", { value: ethers.parseEther("1") })
+        marketplace.connect(bob).registerSubname(parentNode, "shop", ONE_YEAR, { value: ethers.parseEther("1") })
       ).to.be.revertedWith("Marketplace not approved by parent owner");
     });
 
@@ -362,35 +443,81 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       await expect(
-        marketplace.connect(bob).registerSubname(parentNode, "shop", { value: ethers.parseEther("1") })
+        marketplace.connect(bob).registerSubname(parentNode, "shop", ONE_YEAR, { value: ethers.parseEther("1") })
       ).to.be.revertedWith("Subnames not for sale");
     });
 
-    it("registers a subname at the owner-set price, splitting 80/20 and wrapping to the buyer", async function () {
+    it("registers a subname at the owner-set per-year rate, splitting 80/20 and wrapping to the buyer", async function () {
       const ctx = await withRegisteredParent();
       const { marketplace, wrapper, alice, bob } = ctx;
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
 
-      const price = ethers.parseEther("2");
-      const sellerAmount = (price * 8000n) / 10000n;
-      const burnAmount = (price * 2000n) / 10000n;
+      const pricePerYear = ethers.parseEther("2");
+      const sellerAmount = (pricePerYear * 8000n) / 10000n;
+      const burnAmount = (pricePerYear * 2000n) / 10000n;
 
-      await expect(marketplace.connect(alice).setSubnamePrice(parentNode, price))
-        .to.emit(marketplace, "SubnamePriceSet")
-        .withArgs(parentNode, price);
+      await expect(marketplace.connect(alice).setSubnamePricePerYear(parentNode, pricePerYear))
+        .to.emit(marketplace, "SubnamePricePerYearSet")
+        .withArgs(parentNode, pricePerYear);
+
+      expect(await marketplace.quoteSubname(parentNode, ONE_YEAR)).to.equal(pricePerYear);
 
       const aliceBalanceBefore = await ethers.provider.getBalance(alice.address);
 
       const subNode = subNodeFor(parentNode, "shop");
-      await expect(marketplace.connect(bob).registerSubname(parentNode, "shop", { value: price }))
+      await expect(marketplace.connect(bob).registerSubname(parentNode, "shop", ONE_YEAR, { value: pricePerYear }))
         .to.emit(marketplace, "SubnameRegistered")
-        .withArgs(parentNode, "shop", bob.address, price, sellerAmount, burnAmount);
+        .withArgs(parentNode, "shop", bob.address, pricePerYear, sellerAmount, burnAmount);
 
       const aliceBalanceAfter = await ethers.provider.getBalance(alice.address);
       expect(aliceBalanceAfter - aliceBalanceBefore).to.equal(sellerAmount);
       expect(await marketplace.burnPool()).to.equal(burnAmount);
       expect(await wrapper.ownerOf(BigInt(subNode))).to.equal(bob.address);
+    });
+
+    it("scales price linearly with duration", async function () {
+      const ctx = await withRegisteredParent();
+      const { marketplace, alice } = ctx;
+      const parentNode = parentNodeFor("alice");
+      const pricePerYear = ethers.parseEther("10");
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, pricePerYear);
+
+      expect(await marketplace.quoteSubname(parentNode, ONE_YEAR)).to.equal(pricePerYear);
+      expect(await marketplace.quoteSubname(parentNode, ONE_YEAR / 2)).to.equal(pricePerYear / 2n);
+    });
+
+    it("registerSubname reverts on zero or excessive duration", async function () {
+      const ctx = await withRegisteredParent();
+      const { marketplace, wrapper, alice, bob } = ctx;
+      const parentNode = parentNodeFor("alice");
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, ethers.parseEther("1"));
+
+      await expect(
+        marketplace.connect(bob).registerSubname(parentNode, "zero", 0, { value: 0 })
+      ).to.be.revertedWith("Invalid duration");
+
+      // Invalid-duration check fires before any price/payment check, so no real value is needed
+      // here even though the "price" for such a huge duration would itself be astronomical.
+      const maxDuration = await marketplace.MAX_SUBNAME_DURATION();
+      await expect(
+        marketplace.connect(bob).registerSubname(parentNode, "toolong", maxDuration + 1n, { value: 0 })
+      ).to.be.revertedWith("Invalid duration");
+    });
+
+    it("registerSubname reverts if duration would exceed the parent's own expiry", async function () {
+      const ctx = await withRegisteredParent("alice", ONE_YEAR); // parent has only ~1 year left
+      const { marketplace, wrapper, alice, bob } = ctx;
+      const parentNode = parentNodeFor("alice");
+      await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+      const pricePerYear = ethers.parseEther("1");
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, pricePerYear);
+
+      const price = await marketplace.quoteSubname(parentNode, 2 * ONE_YEAR);
+      await expect(
+        marketplace.connect(bob).registerSubname(parentNode, "toolongforparent", 2 * ONE_YEAR, { value: price })
+      ).to.be.revertedWith("Duration exceeds parent expiry");
     });
 
     it("refunds overpayment on registerSubname", async function () {
@@ -399,12 +526,12 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       const price = ethers.parseEther("1");
-      await marketplace.connect(alice).setSubnamePrice(parentNode, price);
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, price);
 
       const bobBalanceBefore = await ethers.provider.getBalance(bob.address);
       const tx = await marketplace
         .connect(bob)
-        .registerSubname(parentNode, "over", { value: price + ethers.parseEther("1") });
+        .registerSubname(parentNode, "over", ONE_YEAR, { value: price + ethers.parseEther("1") });
       const receipt = await tx.wait();
       const gasCost = receipt.gasUsed * receipt.gasPrice;
       const bobBalanceAfter = await ethers.provider.getBalance(bob.address);
@@ -417,23 +544,23 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       const price = ethers.parseEther("1");
-      await marketplace.connect(alice).setSubnamePrice(parentNode, price);
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, price);
 
       await expect(
-        marketplace.connect(bob).registerSubname(parentNode, "cheap", { value: price - 1n })
+        marketplace.connect(bob).registerSubname(parentNode, "cheap", ONE_YEAR, { value: price - 1n })
       ).to.be.revertedWith("Insufficient payment");
     });
 
-    it("setSubnamePrice can clear the price (0 disables sales)", async function () {
+    it("setSubnamePricePerYear can clear the price (0 disables sales)", async function () {
       const ctx = await withRegisteredParent();
       const { marketplace, wrapper, alice, bob } = ctx;
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
-      await marketplace.connect(alice).setSubnamePrice(parentNode, ethers.parseEther("1"));
-      await marketplace.connect(alice).setSubnamePrice(parentNode, 0);
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, ethers.parseEther("1"));
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, 0);
 
       await expect(
-        marketplace.connect(bob).registerSubname(parentNode, "shop", { value: ethers.parseEther("1") })
+        marketplace.connect(bob).registerSubname(parentNode, "shop", ONE_YEAR, { value: ethers.parseEther("1") })
       ).to.be.revertedWith("Subnames not for sale");
     });
 
@@ -500,8 +627,8 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const { marketplace, wrapper, alice, bob, carol } = ctx;
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
-      await marketplace.connect(alice).setSubnamePrice(parentNode, ethers.parseEther("1"));
-      await marketplace.connect(bob).registerSubname(parentNode, "shop", { value: ethers.parseEther("1") });
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, ethers.parseEther("1"));
+      await marketplace.connect(bob).registerSubname(parentNode, "shop", ONE_YEAR, { value: ethers.parseEther("1") });
 
       const subNode = subNodeFor(parentNode, "shop");
       expect(await marketplace.domainActivated(subNode)).to.equal(true);
@@ -515,7 +642,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
   });
 
   describe("domain activation (bypassing the marketplace at registration)", function () {
-    it("setSubnamePrice reverts on a directly-registered (never activated) domain", async function () {
+    it("setSubnamePricePerYear reverts on a directly-registered (never activated) domain", async function () {
       const ctx = await loadFixture(deployFixture);
       const { marketplace, wrapper, alice } = ctx;
       const label = "direct";
@@ -524,7 +651,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
 
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       await expect(
-        marketplace.connect(alice).setSubnamePrice(node, ethers.parseEther("1"))
+        marketplace.connect(alice).setSubnamePricePerYear(node, ethers.parseEther("1"))
       ).to.be.revertedWith("Domain not activated");
     });
 
@@ -577,7 +704,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
       );
     });
 
-    it("activateDomain: happy path unlocks setSubnamePrice, pays projectWallet, refunds excess", async function () {
+    it("activateDomain: happy path unlocks setSubnamePricePerYear, pays projectWallet, refunds excess", async function () {
       const ctx = await loadFixture(deployFixture);
       const { marketplace, wrapper, projectWallet, alice } = ctx;
       const label = "direct6";
@@ -612,9 +739,9 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const aliceBalanceAfter = await ethers.provider.getBalance(alice.address);
       expect(aliceBalanceBefore - aliceBalanceAfter).to.equal(feePaid + gasCost);
 
-      // Now unlocked: setSubnamePrice should succeed.
+      // Now unlocked: setSubnamePricePerYear should succeed.
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
-      await expect(marketplace.connect(alice).setSubnamePrice(node, ethers.parseEther("1"))).to.not.be
+      await expect(marketplace.connect(alice).setSubnamePricePerYear(node, ethers.parseEther("1"))).to.not.be
         .reverted;
     });
 
@@ -639,8 +766,8 @@ describe("PlanetZephyrosNameMarketplace", function () {
       const parentNode = parentNodeFor("alice");
       await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
       const price = ethers.parseEther("5");
-      await marketplace.connect(alice).setSubnamePrice(parentNode, price);
-      await marketplace.connect(bob).registerSubname(parentNode, "shop", { value: price });
+      await marketplace.connect(alice).setSubnamePricePerYear(parentNode, price);
+      await marketplace.connect(bob).registerSubname(parentNode, "shop", ONE_YEAR, { value: price });
       return ctx;
     }
 
