@@ -1,0 +1,47 @@
+{
+	"compiler": {
+		"version": "0.8.20+commit.a1b79de6"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"title": "ETNNamehash",
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"notice": "Pure library implementing the ENS namehash algorithm (EIP-137). namehash(\"\") = 0x000...000 namehash(\"etn\") = keccak256(namehash(\"\") ++ keccak256(\"etn\")) namehash(\"alice.etn\") = keccak256(namehash(\"etn\") ++ keccak256(\"alice\")) Pre-computed roots for convenience:   ETN_NODE   = namehash(\"etn\")",
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/EnsSubdomainService/ETNNamehash.sol": "ETNNamehash"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": true,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/EnsSubdomainService/ETNNamehash.sol": {
+			"keccak256": "0x2a5b1336e916fd73d7af78fd5f4d02db90e67a0078cb9f1a4dd5047971a41072",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://71972c41d9a04b2ac974ebf00f20ce66c28e6f50a86daa4a08ab7506aa21a848",
+				"dweb:/ipfs/QmaiiGteqHvzsobsBSDx7FgXNaetjcu1u9hnBscFcRQLUe"
+			]
+		}
+	},
+	"version": 1
+}

@@ -1,0 +1,198 @@
+{
+	"compiler": {
+		"version": "0.8.20+commit.a1b79de6"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "_registry",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "_resolver",
+						"type": "address"
+					}
+				],
+				"stateMutability": "nonpayable",
+				"type": "constructor"
+			},
+			{
+				"anonymous": false,
+				"inputs": [
+					{
+						"indexed": true,
+						"internalType": "address",
+						"name": "addr",
+						"type": "address"
+					},
+					{
+						"indexed": true,
+						"internalType": "bytes32",
+						"name": "node",
+						"type": "bytes32"
+					}
+				],
+				"name": "ReverseClaimed",
+				"type": "event"
+			},
+			{
+				"inputs": [],
+				"name": "ADDR_REVERSE_NODE",
+				"outputs": [
+					{
+						"internalType": "bytes32",
+						"name": "",
+						"type": "bytes32"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "addr",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "resolver",
+						"type": "address"
+					}
+				],
+				"name": "claimWithResolver",
+				"outputs": [
+					{
+						"internalType": "bytes32",
+						"name": "",
+						"type": "bytes32"
+					}
+				],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "defaultResolver",
+				"outputs": [
+					{
+						"internalType": "contract ETNPublicResolver",
+						"name": "",
+						"type": "address"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "addr",
+						"type": "address"
+					}
+				],
+				"name": "node",
+				"outputs": [
+					{
+						"internalType": "bytes32",
+						"name": "",
+						"type": "bytes32"
+					}
+				],
+				"stateMutability": "pure",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "registry",
+				"outputs": [
+					{
+						"internalType": "contract ETNRegistry",
+						"name": "",
+						"type": "address"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "string",
+						"name": "forwardName",
+						"type": "string"
+					}
+				],
+				"name": "setName",
+				"outputs": [
+					{
+						"internalType": "bytes32",
+						"name": "",
+						"type": "bytes32"
+					}
+				],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/EnsSubdomainService/ETNReverseRegistrar.sol": "ETNReverseRegistrar"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": true,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/EnsSubdomainService/ETNPublicResolver.sol": {
+			"keccak256": "0xbecb71418063c02583a3b88b60341e86e36bcc422b21d17eb500a29823bf5509",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://1236326a9882b1e1f30fe8d8bdfdb95fffbd8885dfd3d63d017868237f65a0f2",
+				"dweb:/ipfs/QmdG9u5Dh6UTLZ9VyNViXxYfwK33B6U8HryW3vD6QwpduY"
+			]
+		},
+		"contracts/EnsSubdomainService/ETNRegistry.sol": {
+			"keccak256": "0x7d19569aced2937dddd59e3d3316df9067c05fc5d6650070d572facb110e01b5",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://2af8a75f8ed22ccc9761dc6cc2211484ecd38b94e43513d2748dafdcbed3533b",
+				"dweb:/ipfs/QmaPLVPjTXG1NUDENBScc1nkJFQjRhkkTs5PHpLtCWbPRz"
+			]
+		},
+		"contracts/EnsSubdomainService/ETNReverseRegistrar.sol": {
+			"keccak256": "0x8ff07dd00f41ab53d8efaf103ef81074992765ea45d899f49edfb68e49e67336",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://8c1e661b78758c14bcee261d98024d4c5e8d5fbb837588faea7f57049f19ffa5",
+				"dweb:/ipfs/Qmf2nE2djm6koybQVETSL7zHS3gFgj6D8q5D7noEwAnCtD"
+			]
+		}
+	},
+	"version": 1
+}

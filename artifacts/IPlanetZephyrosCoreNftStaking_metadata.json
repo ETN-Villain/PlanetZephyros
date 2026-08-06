@@ -1,0 +1,64 @@
+{
+	"compiler": {
+		"version": "0.8.20+commit.a1b79de6"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "uint256",
+						"name": "amount",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "durationBlocks",
+						"type": "uint256"
+					}
+				],
+				"name": "fundRewards",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/ZephyrosStaking/DripFundingContract.sol": "IPlanetZephyrosCoreNftStaking"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": true,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/ZephyrosStaking/DripFundingContract.sol": {
+			"keccak256": "0x0e0b23e17d6b85264a66e09f1c29897966bc073258c954a50b49b44bc87c639b",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://d5538fb7be1706822b807dc382047cac38c17ce6773e7ca70400f741def09bf2",
+				"dweb:/ipfs/QmV7upovTqDpypeXCajfuMAs7D941GTRjxPixZwNsxfJbC"
+			]
+		}
+	},
+	"version": 1
+}

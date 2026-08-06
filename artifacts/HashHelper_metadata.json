@@ -1,0 +1,89 @@
+{
+	"compiler": {
+		"version": "0.8.20+commit.a1b79de6"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "string",
+						"name": "label",
+						"type": "string"
+					}
+				],
+				"name": "getHash",
+				"outputs": [
+					{
+						"internalType": "bytes32",
+						"name": "",
+						"type": "bytes32"
+					}
+				],
+				"stateMutability": "pure",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "bytes32",
+						"name": "node",
+						"type": "bytes32"
+					},
+					{
+						"internalType": "bytes32",
+						"name": "label",
+						"type": "bytes32"
+					}
+				],
+				"name": "getSubnode",
+				"outputs": [
+					{
+						"internalType": "bytes32",
+						"name": "",
+						"type": "bytes32"
+					}
+				],
+				"stateMutability": "pure",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/EnsSubdomainService/HashHelper.sol": "HashHelper"
+		},
+		"evmVersion": "london",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": true,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/EnsSubdomainService/HashHelper.sol": {
+			"keccak256": "0xcad6322c2d1ea9711a4b14176b8b810b1465ce2484b22b22f883d00be3c5bc55",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://a66273b548d0e78e53705f06ba4a1319f4d05033a05c6320fa8a023fe7497eda",
+				"dweb:/ipfs/Qmevf7MPgTaePHimtEgo9F9umG4vABoFf5TGKtgwmVTbSC"
+			]
+		}
+	},
+	"version": 1
+}
