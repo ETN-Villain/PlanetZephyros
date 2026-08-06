@@ -6,9 +6,15 @@ const { TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS } = require("hardhat/builtin-task
 
 // contracts/v2RouterCheck.sol is abandoned scratch code (not valid Solidity) kept on disk for
 // reference only; exclude it from compilation rather than deleting it.
+//
+// These three came in via the main_4_1_NFTcontract merge from other branches, all written for
+// Remix (which resolves https:// GitHub imports natively — Hardhat's compiler doesn't, HH406).
+// Excluded by filename rather than deleted; their siblings in the same directories don't use
+// https imports so this is per-file, not per-directory.
+const HTTPS_IMPORT_FILES = ["ETNBaseRegistrar.sol", "AetherScionsFeeReflectionV3.sol", "ZephyrosStaking.sol"];
 subtask(TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS).setAction(async (_, __, runSuper) => {
   const paths = await runSuper();
-  return paths.filter((p) => !p.endsWith("v2RouterCheck.sol"));
+  return paths.filter((p) => !p.endsWith("v2RouterCheck.sol") && !HTTPS_IMPORT_FILES.some((f) => p.endsWith(f)));
 });
 
 const ELECTRONEUM_TESTNET_RPC_URL =
