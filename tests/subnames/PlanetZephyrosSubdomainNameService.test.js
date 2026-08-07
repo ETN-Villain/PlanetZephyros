@@ -4,7 +4,10 @@ const { loadFixture, time } = require("@nomicfoundation/hardhat-network-helpers"
 
 const ONE_YEAR = 365 * 24 * 60 * 60;
 const PRICE_PER_SECOND = ethers.parseEther("0.000001");
-const ROOT_NODE = "0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae";
+// Matches MockNameWrapper.ROOT_NODE (this project's real .etn root, ETNNamehash.ETN_NODE) —
+// must stay identical to that constant, not an arbitrary placeholder, or any test exercising
+// both a wrapped name's real node and its post-wrap NameWrapper state disagrees with itself.
+const ROOT_NODE = "0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd";
 
 function parentNodeFor(label) {
   const labelHash = ethers.keccak256(ethers.toUtf8Bytes(label));
@@ -119,15 +122,6 @@ describe("PlanetZephyrosSubdomainNameService", function () {
     return { node: parentNodeFor(label) };
   }
 
-  // ETNNamehash.ETN_NODE from contracts/EnsSubdomainService/ETNNamehash.sol — the real root
-  // activateDomain's unwrapped fallback recomputes nodes against, distinct from ROOT_NODE above
-  // (MockNameWrapper's own internal wrapping root, only relevant once a name is wrapped).
-  const ETN_NODE = "0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd";
-  function etnNodeFor(label) {
-    const labelHash = ethers.keccak256(ethers.toUtf8Bytes(label));
-    return ethers.keccak256(ethers.concat([ETN_NODE, labelHash]));
-  }
-
   /// Simulates a buyer registering directly with ETHRegistrarController and never wrapping it at
   /// all — the actual "Retro Register" scenario activateDomain exists for. registerDirect above
   /// still wraps (line 117), so it never exercises NameWrapper genuinely having zero data for the
@@ -153,7 +147,7 @@ describe("PlanetZephyrosSubdomainNameService", function () {
     const price = await controller.rentPrice(label, ONE_YEAR);
     await controller.connect(signer).register(registration, { value: price.base + price.premium });
 
-    return { node: etnNodeFor(label) };
+    return { node: parentNodeFor(label) };
   }
 
   // Defaults to a 5-year parent registration so ONE_YEAR-duration subname tests have headroom —
@@ -800,14 +794,30 @@ describe("PlanetZephyrosSubdomainNameService", function () {
     // it whatsoever. Before the fix, every one of these reverted "Not name owner"/"Name expired"
     // unconditionally, for anyone, because the checks only ever looked at NameWrapper.
     describe("genuinely never wrapped (not even outside the marketplace)", function () {
-      it("activateDomain succeeds for the real owner", async function () {
+      it("activateDomain reverts with a clear reason if BaseRegistrar isn't approved yet", async function () {
         const ctx = await loadFixture(deployFixture);
-        const { marketplace, wrapper, alice } = ctx;
+        const { marketplace, alice } = ctx;
+        const label = "neverwrapped0";
+        const { node } = await registerDirectUnwrapped(ctx, alice, label);
+
+        // No baseRegistrar.setApprovalForAll(marketplace, true) yet — activateDomain needs to
+        // pull the raw registration into its own custody to wrap it, same as _wrapAndActivate
+        // does for fresh registrations, and can't without this.
+        await expect(
+          marketplace.connect(alice).activateDomain(node, label, { value: ethers.parseEther("1000") })
+        ).to.be.revertedWith("Approve BaseRegistrar first");
+      });
+
+      it("activateDomain wraps the name and unlocks setSubnamePricePerYear", async function () {
+        const ctx = await loadFixture(deployFixture);
+        const { marketplace, wrapper, base, alice } = ctx;
         const label = "neverwrapped";
         const { node } = await registerDirectUnwrapped(ctx, alice, label);
 
-        // Confirms this is genuinely the gap the old NameWrapper-only check missed.
+        // Confirms this is genuinely the gap the old NameWrapper-only checks missed.
         expect(await wrapper.ownerOf(BigInt(node))).to.equal(ethers.ZeroAddress);
+
+        await base.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
 
         // Not pre-quoted via staticCall then asserted exact — _activationFee's remaining-time
         // math shifts by however many seconds pass before the real tx mines, so read feePaid
@@ -829,6 +839,18 @@ describe("PlanetZephyrosSubdomainNameService", function () {
         expect(event.args.feePaid).to.be.gt(0n);
 
         expect(await marketplace.domainActivated(node)).to.equal(true);
+
+        // The actual point of wrapping as part of activation: NameWrapper genuinely has this
+        // name now, wrapped back to its original owner —
+        expect(await wrapper.ownerOf(BigInt(node))).to.equal(alice.address);
+
+        // — and everything downstream that reads NameWrapper directly now works, where it used
+        // to revert "Not parent owner/operator" for a "domainActivated but still unwrapped" name
+        // (the exact bug this fix closes: activation alone, without an actual wrap, unlocked
+        // nothing real).
+        await wrapper.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+        await expect(marketplace.connect(alice).setSubnamePricePerYear(node, ethers.parseEther("1"))).to.not.be
+          .reverted;
       });
 
       it("activateDomain reverts if caller doesn't own the name", async function () {
