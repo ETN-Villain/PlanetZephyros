@@ -1,7 +1,7 @@
-// Deploys PlanetZephyrosNameMarketplace via Remix's injected provider.
+// Deploys PlanetZephyrosSubdomainNameService via Remix's injected provider.
 //
 // Before running:
-//  1. In Remix, compile contracts/subnames/PlanetZephyrosNameMarketplace.sol with:
+//  1. In Remix, compile contracts/subnames/PlanetZephyrosSubdomainNameService.sol with:
 //       Solidity: 0.8.24, Enable optimization (200 runs), EVM Version: cancun, Enable viaIR
 //     (Advanced Configurations in the Solidity Compiler plugin.)
 //  2. In "Deploy & Run Transactions", set Environment to "Injected Provider - MetaMask", with
@@ -29,7 +29,7 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       throw new Error('Set PROJECT_WALLET and OWNER at the top of this script before running.')
     }
 
-    const result = await deploy('PlanetZephyrosNameMarketplace', [
+    const result = await deploy('PlanetZephyrosSubdomainNameService', [
       REGISTRAR_CONTROLLER,
       NAME_WRAPPER,
       BASE_REGISTRAR,
@@ -37,7 +37,7 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       PROJECT_WALLET,
       OWNER,
     ])
-    console.log(`PlanetZephyrosNameMarketplace deployed to: ${result.address}`)
+    console.log(`PlanetZephyrosSubdomainNameService deployed to: ${result.address}`)
   } catch (e) {
     console.log(e.message)
   }

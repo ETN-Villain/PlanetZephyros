@@ -12,10 +12,12 @@
 //
 import { ethers } from 'ethers'
 
-// Deployed and verified 2026-08-06: constructor args, brokerageBps (5000), and
-// minBrokerageFeePerYear (25,000 ETN) all confirmed matching on-chain, block 15188489,
-// tx 0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9.
-const MARKETPLACE_ADDRESS = '0x1191C7c0558F52a7282C00Bc477aA16187C1fE64'
+// PlanetZephyrosSubdomainNameService (renamed from PlanetZephyrosNameMarketplace), redeployed
+// 2026-08-07 to fix activateDomain for genuinely-unwrapped names — block 15201936, tx
+// 0x5ca6c4067ee99def86e20b79edad75a6beff82f5467aa0a00d80c1e11c47aa22. coreToken/swapRouter
+// confirmed set correctly on this address after running this script.
+// (Prior deployment, now superseded: 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64, block 15188489.)
+const MARKETPLACE_ADDRESS = '0x775c9BF1516811349915fC50E471875252Bb5Ef3'
 
 // Electroneum mainnet — Planet Zephyros (CORE) token + its own router, verified on-chain
 // 2026-08-06: name()/symbol() match, routerAddress matches contracts/PlanetZephyrosV1.sol exactly.

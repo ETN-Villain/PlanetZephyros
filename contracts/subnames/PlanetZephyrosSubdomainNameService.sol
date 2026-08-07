@@ -29,8 +29,9 @@ import "./interfaces/INameWrapperLite.sol";
 import "./interfaces/IBurnableERC20.sol";
 import "./interfaces/IUniswapV2Router02Lite.sol";
 import "./interfaces/IBaseRegistrarLite.sol";
+import "../EnsSubdomainService/ETNNamehash.sol";
 
-contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
+contract PlanetZephyrosSubdomainNameService is Ownable, ReentrancyGuard {
     // ========================
     // Immutable protocol wiring
     // ========================
@@ -353,9 +354,8 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         bytes32 node,
         string calldata label
     ) external payable nonReentrant whenNotPaused returns (uint256 fee) {
-        require(nameWrapper.ownerOf(uint256(node)) == msg.sender, "Not name owner");
+        _requireNodeOwner(node, label, msg.sender);
         require(!domainActivated[node], "Already activated");
-        require(_firstLabelMatches(nameWrapper.names(node), label), "Label mismatch");
 
         fee = _activationFee(node, label);
         require(msg.value >= fee, "Insufficient payment");
@@ -366,12 +366,41 @@ contract PlanetZephyrosNameMarketplace is Ownable, ReentrancyGuard {
         emit DomainActivated(node, msg.sender, fee);
     }
 
+    /// @dev Names registered directly through ETHRegistrarController but never wrapped — the
+    /// exact case activateDomain exists to handle — have no NameWrapper data at all: ownerOf and
+    /// names() both return zero/empty for them, not "not found". Checking NameWrapper alone (as
+    /// this used to) meant activateDomain could never succeed for a genuinely unwrapped name,
+    /// contradicting its own stated purpose. Checks NameWrapper first (covers a name that's
+    /// already wrapped, e.g. re-checking one already activated), falling back to the raw
+    /// BaseRegistrar registrant for the unwrapped case — verifying label really matches node via
+    /// ETNNamehash instead of nameWrapper.names(node), which is equally unset pre-wrap. Ownership
+    /// and label-match stay separate requires (not one combined bool) so each keeps its own
+    /// distinct revert reason, same as before this fallback existed.
+    function _requireNodeOwner(bytes32 node, string calldata label, address account) internal view {
+        address wrappedOwner = nameWrapper.ownerOf(uint256(node));
+        if (wrappedOwner != address(0)) {
+            require(wrappedOwner == account, "Not name owner");
+            require(_firstLabelMatches(nameWrapper.names(node), label), "Label mismatch");
+            return;
+        }
+
+        bytes32 labelHash = keccak256(bytes(label));
+        require(baseRegistrar.ownerOf(uint256(labelHash)) == account, "Not name owner");
+        require(ETNNamehash.etnNode(labelHash) == node, "Label mismatch");
+    }
+
     /// @dev Split out of activateDomain to keep its stack usage low enough to compile without
     /// viaIR (Remix's default codegen).
     function _activationFee(bytes32 node, string calldata label) internal view returns (uint256 fee) {
-        (, , uint64 expiry) = nameWrapper.getData(uint256(node));
+        (, , uint64 wrappedExpiry) = nameWrapper.getData(uint256(node));
+        uint256 expiry = wrappedExpiry;
+        // Same unwrapped-name gap as _isNodeOwner above — NameWrapper has no expiry recorded for
+        // a name that was never wrapped, so fall back to the real registrar expiry.
+        if (expiry == 0) {
+            expiry = baseRegistrar.nameExpires(uint256(keccak256(bytes(label))));
+        }
         require(expiry > block.timestamp, "Name expired");
-        uint256 remaining = uint256(expiry) - block.timestamp;
+        uint256 remaining = expiry - block.timestamp;
 
         IPriceOracle.Price memory p = registrarController.rentPrice(label, remaining);
         uint256 basePrice = p.base + p.premium;
