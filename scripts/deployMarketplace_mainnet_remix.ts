@@ -1,9 +1,16 @@
 // Deploys PlanetZephyrosSubdomainNameService to Electroneum MAINNET via Remix's injected provider.
 //
-// DEPLOYED 2026-08-06: 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64, block 15188489, tx
-// 0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9. Constructor wiring and fee
-// config independently verified against on-chain state after deploy. Kept here for reference /
-// in case a redeploy is ever needed.
+// DEPLOYED 2026-08-07: 0x775c9BF1516811349915fC50E471875252Bb5Ef3, block 15201936, tx
+// 0x5ca6c4067ee99def86e20b79edad75a6beff82f5467aa0a00d80c1e11c47aa22. Constructor wiring and fee
+// config independently verified against on-chain state after deploy; activateDomain's fix also
+// confirmed live via a read-only staticCall simulation for a genuinely-unwrapped name
+// (planetzephyros.etn) — succeeds where the previous deployment unconditionally reverted "Not
+// name owner". Supersedes the prior deployment at
+// 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64 (block 15188489, tx
+// 0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9), which has the unfixed
+// activateDomain bug and is left live/untouched (not pausable-by-migration) — the frontend's
+// MARKETPLACE_ADDRESS points at this new one instead. Kept here for reference / in case another
+// redeploy is ever needed.
 //
 // Before running:
 //  1. In Remix, compile contracts/subnames/PlanetZephyrosSubdomainNameService.sol with:
