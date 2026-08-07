@@ -16,7 +16,7 @@ function subNodeFor(parentNode, label) {
   return ethers.keccak256(ethers.concat([parentNode, labelHash]));
 }
 
-describe("PlanetZephyrosNameMarketplace", function () {
+describe("PlanetZephyrosSubdomainNameService", function () {
   async function deployFixture() {
     const [deployer, projectWallet, alice, bob, carol] = await ethers.getSigners();
 
@@ -39,7 +39,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
 
     const defaultResolver = ethers.Wallet.createRandom().address;
 
-    const Marketplace = await ethers.getContractFactory("PlanetZephyrosNameMarketplace");
+    const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameService");
     const marketplace = await Marketplace.deploy(
       await controller.getAddress(),
       await wrapper.getAddress(),
@@ -119,6 +119,43 @@ describe("PlanetZephyrosNameMarketplace", function () {
     return { node: parentNodeFor(label) };
   }
 
+  // ETNNamehash.ETN_NODE from contracts/EnsSubdomainService/ETNNamehash.sol — the real root
+  // activateDomain's unwrapped fallback recomputes nodes against, distinct from ROOT_NODE above
+  // (MockNameWrapper's own internal wrapping root, only relevant once a name is wrapped).
+  const ETN_NODE = "0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd";
+  function etnNodeFor(label) {
+    const labelHash = ethers.keccak256(ethers.toUtf8Bytes(label));
+    return ethers.keccak256(ethers.concat([ETN_NODE, labelHash]));
+  }
+
+  /// Simulates a buyer registering directly with ETHRegistrarController and never wrapping it at
+  /// all — the actual "Retro Register" scenario activateDomain exists for. registerDirect above
+  /// still wraps (line 117), so it never exercises NameWrapper genuinely having zero data for the
+  /// node, which is the specific gap that let "Not name owner"/"Name expired" ship unfixed for
+  /// this case.
+  async function registerDirectUnwrapped(ctx, signer, label) {
+    const { controller } = ctx;
+    const secret = ethers.hexlify(ethers.randomBytes(32));
+    const registration = {
+      label,
+      owner: signer.address,
+      duration: ONE_YEAR,
+      secret,
+      resolver: ethers.ZeroAddress,
+      data: [],
+      reverseRecord: 0,
+      referrer: ethers.ZeroHash,
+    };
+    const commitment = await controller.makeCommitment(registration);
+    await controller.connect(signer).commit(commitment);
+    await time.increase(61);
+
+    const price = await controller.rentPrice(label, ONE_YEAR);
+    await controller.connect(signer).register(registration, { value: price.base + price.premium });
+
+    return { node: etnNodeFor(label) };
+  }
+
   // Defaults to a 5-year parent registration so ONE_YEAR-duration subname tests have headroom —
   // real time elapses between parent registration and a subname test's registerSubname call
   // (commitAndWait's time.increase(61) alone), so a parent registered for exactly ONE_YEAR would
@@ -132,7 +169,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
   describe("constructor", function () {
     it("reverts on zero addresses", async function () {
       const { controller, wrapper, base, projectWallet, deployer, defaultResolver } = await loadFixture(deployFixture);
-      const Marketplace = await ethers.getContractFactory("PlanetZephyrosNameMarketplace");
+      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameService");
 
       await expect(
         Marketplace.deploy(
@@ -349,7 +386,7 @@ describe("PlanetZephyrosNameMarketplace", function () {
   describe("minBrokerageFeePerYear", function () {
     it("defaults to 25,000 ETN on a fresh deployment", async function () {
       const { controller, wrapper, base, projectWallet, deployer, defaultResolver } = await loadFixture(deployFixture);
-      const Marketplace = await ethers.getContractFactory("PlanetZephyrosNameMarketplace");
+      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameService");
       const fresh = await Marketplace.deploy(
         await controller.getAddress(),
         await wrapper.getAddress(),
@@ -756,6 +793,68 @@ describe("PlanetZephyrosNameMarketplace", function () {
       await expect(
         marketplace.connect(alice).activateDomain(node, label, { value: ethers.parseEther("1000") })
       ).to.be.revertedWith("Already activated");
+    });
+
+    // A name registered directly through ETHRegistrarController and never wrapped at all (not
+    // even by the buyer themselves, unlike registerDirect above) — NameWrapper has no record of
+    // it whatsoever. Before the fix, every one of these reverted "Not name owner"/"Name expired"
+    // unconditionally, for anyone, because the checks only ever looked at NameWrapper.
+    describe("genuinely never wrapped (not even outside the marketplace)", function () {
+      it("activateDomain succeeds for the real owner", async function () {
+        const ctx = await loadFixture(deployFixture);
+        const { marketplace, wrapper, alice } = ctx;
+        const label = "neverwrapped";
+        const { node } = await registerDirectUnwrapped(ctx, alice, label);
+
+        // Confirms this is genuinely the gap the old NameWrapper-only check missed.
+        expect(await wrapper.ownerOf(BigInt(node))).to.equal(ethers.ZeroAddress);
+
+        // Not pre-quoted via staticCall then asserted exact — _activationFee's remaining-time
+        // math shifts by however many seconds pass before the real tx mines, so read feePaid
+        // back from the emitted event instead (same pattern the "happy path" test above uses).
+        const tx = await marketplace.connect(alice).activateDomain(node, label, { value: ethers.parseEther("1000") });
+        const receipt = await tx.wait();
+        const event = receipt.logs
+          .map((l) => {
+            try {
+              return marketplace.interface.parseLog(l);
+            } catch {
+              return null;
+            }
+          })
+          .find((e) => e && e.name === "DomainActivated");
+        expect(event).to.not.equal(undefined);
+        expect(event.args.node).to.equal(node);
+        expect(event.args.payer).to.equal(alice.address);
+        expect(event.args.feePaid).to.be.gt(0n);
+
+        expect(await marketplace.domainActivated(node)).to.equal(true);
+      });
+
+      it("activateDomain reverts if caller doesn't own the name", async function () {
+        const ctx = await loadFixture(deployFixture);
+        const { marketplace, alice, bob } = ctx;
+        const label = "neverwrapped2";
+        const { node } = await registerDirectUnwrapped(ctx, alice, label);
+
+        await expect(
+          marketplace.connect(bob).activateDomain(node, label, { value: ethers.parseEther("1000") })
+        ).to.be.revertedWith("Not name owner");
+      });
+
+      it("activateDomain reverts on label/node mismatch", async function () {
+        const ctx = await loadFixture(deployFixture);
+        const { marketplace, alice } = ctx;
+        // Both genuinely registered (and owned by alice) so ownerOf resolves cleanly for each —
+        // isolates the label/node cross-check itself from an unrelated "never registered at all"
+        // revert, which BaseRegistrar's real ERC721 ownerOf would throw on its own.
+        const { node: nodeA } = await registerDirectUnwrapped(ctx, alice, "neverwrapped3a");
+        await registerDirectUnwrapped(ctx, alice, "neverwrapped3b");
+
+        await expect(
+          marketplace.connect(alice).activateDomain(nodeA, "neverwrapped3b", { value: ethers.parseEther("1000") })
+        ).to.be.revertedWith("Label mismatch");
+      });
     });
   });
 

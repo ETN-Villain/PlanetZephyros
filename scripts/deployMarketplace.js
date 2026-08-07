@@ -1,4 +1,4 @@
-// Deploys PlanetZephyrosNameMarketplace to Electroneum testnet or mainnet and verifies it on the
+// Deploys PlanetZephyrosSubdomainNameService to Electroneum testnet or mainnet and verifies it on the
 // block explorer. Run with:
 //   npx hardhat run scripts/deployMarketplace.js --network electroneumTestnet
 //   npx hardhat run scripts/deployMarketplace.js --network electroneumMainnet
@@ -49,7 +49,7 @@ async function main() {
   }
 
   const [deployer] = await hre.ethers.getSigners();
-  console.log("Deploying PlanetZephyrosNameMarketplace with account:", deployer.address);
+  console.log("Deploying PlanetZephyrosSubdomainNameService with account:", deployer.address);
   console.log("  registrarController:", registrarController);
   console.log("  nameWrapper:        ", nameWrapper);
   console.log("  baseRegistrar:      ", baseRegistrar);
@@ -66,12 +66,12 @@ async function main() {
     deployer.address,
   ];
 
-  const factory = await hre.ethers.getContractFactory("PlanetZephyrosNameMarketplace");
+  const factory = await hre.ethers.getContractFactory("PlanetZephyrosSubdomainNameService");
   const marketplace = await factory.deploy(...constructorArgs);
   await marketplace.waitForDeployment();
 
   const address = await marketplace.getAddress();
-  console.log("PlanetZephyrosNameMarketplace deployed to:", address);
+  console.log("PlanetZephyrosSubdomainNameService deployed to:", address);
 
   const confirmations = Number(process.env.VERIFY_CONFIRMATIONS || 5);
   console.log(`Waiting for ${confirmations} confirmations before verifying...`);

@@ -1,4 +1,4 @@
-// Deploys PlanetZephyrosNameMarketplace to Electroneum MAINNET via Remix's injected provider.
+// Deploys PlanetZephyrosSubdomainNameService to Electroneum MAINNET via Remix's injected provider.
 //
 // DEPLOYED 2026-08-06: 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64, block 15188489, tx
 // 0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9. Constructor wiring and fee
@@ -6,7 +6,7 @@
 // in case a redeploy is ever needed.
 //
 // Before running:
-//  1. In Remix, compile contracts/subnames/PlanetZephyrosNameMarketplace.sol with:
+//  1. In Remix, compile contracts/subnames/PlanetZephyrosSubdomainNameService.sol with:
 //       Solidity: 0.8.24, Enable optimization (200 runs), EVM Version: london, Enable viaIR
 //     (Advanced Configurations in the Solidity Compiler plugin.)
 //     EVM Version MUST be london, not the Remix default — Electroneum testnet rejected Cancun
@@ -45,7 +45,7 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       throw new Error('Set PROJECT_WALLET and OWNER at the top of this script before running.')
     }
 
-    const result = await deploy('PlanetZephyrosNameMarketplace', [
+    const result = await deploy('PlanetZephyrosSubdomainNameService', [
       REGISTRAR_CONTROLLER,
       NAME_WRAPPER,
       BASE_REGISTRAR,
@@ -53,7 +53,7 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       PROJECT_WALLET,
       OWNER,
     ])
-    console.log(`PlanetZephyrosNameMarketplace deployed to MAINNET: ${result.address}`)
+    console.log(`PlanetZephyrosSubdomainNameService deployed to MAINNET: ${result.address}`)
   } catch (e) {
     console.log(e.message)
   }
