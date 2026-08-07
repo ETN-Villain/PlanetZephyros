@@ -19,7 +19,7 @@ function subNodeFor(parentNode, label) {
   return ethers.keccak256(ethers.concat([parentNode, labelHash]));
 }
 
-describe("PlanetZephyrosSubdomainNameService", function () {
+describe("PlanetZephyrosSubdomainNameServiceV2", function () {
   async function deployFixture() {
     const [deployer, projectWallet, alice, bob, carol] = await ethers.getSigners();
 
@@ -42,7 +42,7 @@ describe("PlanetZephyrosSubdomainNameService", function () {
 
     const defaultResolver = ethers.Wallet.createRandom().address;
 
-    const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameService");
+    const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV2");
     const marketplace = await Marketplace.deploy(
       await controller.getAddress(),
       await wrapper.getAddress(),
@@ -163,7 +163,7 @@ describe("PlanetZephyrosSubdomainNameService", function () {
   describe("constructor", function () {
     it("reverts on zero addresses", async function () {
       const { controller, wrapper, base, projectWallet, deployer, defaultResolver } = await loadFixture(deployFixture);
-      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameService");
+      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV2");
 
       await expect(
         Marketplace.deploy(
@@ -380,7 +380,7 @@ describe("PlanetZephyrosSubdomainNameService", function () {
   describe("minBrokerageFeePerYear", function () {
     it("defaults to 25,000 ETN on a fresh deployment", async function () {
       const { controller, wrapper, base, projectWallet, deployer, defaultResolver } = await loadFixture(deployFixture);
-      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameService");
+      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV2");
       const fresh = await Marketplace.deploy(
         await controller.getAddress(),
         await wrapper.getAddress(),

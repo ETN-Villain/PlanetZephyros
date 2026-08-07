@@ -20,7 +20,7 @@ contract MockNameWrapper is ERC1155 {
     // consistent root so it produces a realistic full-namehash token id (keccak256(ROOT_NODE,
     // labelhash)), matching how the real NameWrapper's _wrapETH2LD/_makeNode derives its ERC1155
     // id — and specifically so it agrees with ETNNamehash.etnNode() (used by
-    // PlanetZephyrosSubdomainNameService's unwrapped-name fallback checks) for the exact same
+    // PlanetZephyrosSubdomainNameServiceV2's unwrapped-name fallback checks) for the exact same
     // label, which the previous mismatched placeholder didn't.
     bytes32 public constant ROOT_NODE = 0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd;
 

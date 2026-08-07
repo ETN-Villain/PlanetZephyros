@@ -1,5 +1,5 @@
 // Deploys MockCoreToken + MockRouter to Electroneum testnet, for testing
-// PlanetZephyrosSubdomainNameService's buyBackAndBurn() before the real CORE token exists there.
+// PlanetZephyrosSubdomainNameServiceV2's buyBackAndBurn() before the real CORE token exists there.
 // Run with any funded account — deploying these doesn't require being the marketplace owner.
 //
 // Before running: compile contracts/subnames/mocks/MockCoreToken.sol and MockRouter.sol with the

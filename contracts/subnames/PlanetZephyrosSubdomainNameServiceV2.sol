@@ -31,7 +31,7 @@ import "./interfaces/IUniswapV2Router02Lite.sol";
 import "./interfaces/IBaseRegistrarLite.sol";
 import "../EnsSubdomainService/ETNNamehash.sol";
 
-contract PlanetZephyrosSubdomainNameService is Ownable, ReentrancyGuard {
+contract PlanetZephyrosSubdomainNameServiceV2 is Ownable, ReentrancyGuard {
     // ========================
     // Immutable protocol wiring
     // ========================

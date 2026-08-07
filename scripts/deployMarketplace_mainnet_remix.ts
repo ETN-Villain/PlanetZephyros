@@ -1,19 +1,19 @@
-// Deploys PlanetZephyrosSubdomainNameService to Electroneum MAINNET via Remix's injected provider.
+// Deploys PlanetZephyrosSubdomainNameServiceV2 to Electroneum MAINNET via Remix's injected
+// provider.
 //
-// DEPLOYED 2026-08-07: 0x775c9BF1516811349915fC50E471875252Bb5Ef3, block 15201936, tx
-// 0x5ca6c4067ee99def86e20b79edad75a6beff82f5467aa0a00d80c1e11c47aa22. Constructor wiring and fee
-// config independently verified against on-chain state after deploy; activateDomain's fix also
-// confirmed live via a read-only staticCall simulation for a genuinely-unwrapped name
-// (planetzephyros.etn) — succeeds where the previous deployment unconditionally reverted "Not
-// name owner". Supersedes the prior deployment at
-// 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64 (block 15188489, tx
-// 0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9), which has the unfixed
-// activateDomain bug and is left live/untouched (not pausable-by-migration) — the frontend's
-// MARKETPLACE_ADDRESS points at this new one instead. Kept here for reference / in case another
-// redeploy is ever needed.
+// PRIOR DEPLOYMENTS (both superseded by this V2 — activateDomain "flag flip only, never actually
+// wraps the name" bug found live on mainnet, downstream functions like setSubnamePricePerYear
+// need the real wrap):
+//  - 0x775c9BF1516811349915fC50E471875252Bb5Ef3 (block 15201936, tx
+//    0x5ca6c4067ee99def86e20b79edad75a6beff82f5467aa0a00d80c1e11c47aa22) — "PlanetZephyrosSubdomainNameService",
+//    fixed activateDomain's ownership/expiry checks for unwrapped names, deployed 2026-08-07.
+//  - 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64 (block 15188489, tx
+//    0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9) — original
+//    "PlanetZephyrosNameMarketplace" deployment. Both left live/untouched on-chain (not
+//    pausable-by-migration) — the frontend's MARKETPLACE_ADDRESS points at whichever is current.
 //
 // Before running:
-//  1. In Remix, compile contracts/subnames/PlanetZephyrosSubdomainNameService.sol with:
+//  1. In Remix, compile contracts/subnames/PlanetZephyrosSubdomainNameServiceV2.sol with:
 //       Solidity: 0.8.24, Enable optimization (200 runs), EVM Version: london, Enable viaIR
 //     (Advanced Configurations in the Solidity Compiler plugin.)
 //     EVM Version MUST be london, not the Remix default — Electroneum testnet rejected Cancun
@@ -52,7 +52,7 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       throw new Error('Set PROJECT_WALLET and OWNER at the top of this script before running.')
     }
 
-    const result = await deploy('PlanetZephyrosSubdomainNameService', [
+    const result = await deploy('PlanetZephyrosSubdomainNameServiceV2', [
       REGISTRAR_CONTROLLER,
       NAME_WRAPPER,
       BASE_REGISTRAR,
@@ -60,7 +60,7 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       PROJECT_WALLET,
       OWNER,
     ])
-    console.log(`PlanetZephyrosSubdomainNameService deployed to MAINNET: ${result.address}`)
+    console.log(`PlanetZephyrosSubdomainNameServiceV2 deployed to MAINNET: ${result.address}`)
   } catch (e) {
     console.log(e.message)
   }
