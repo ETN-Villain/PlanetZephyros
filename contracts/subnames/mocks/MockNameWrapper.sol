@@ -15,11 +15,14 @@ contract MockNameWrapper is ERC1155 {
         uint64 expiry;
     }
 
-    // Same constant used by the real ETHRegistrarController/NameWrapper as the .eth root node;
-    // reused here purely as a fixed root so wrapETH2LD produces a realistic full-namehash token
-    // id (keccak256(ROOT_NODE, labelhash)) instead of a bare labelhash, matching how the real
-    // NameWrapper's _wrapETH2LD/_makeNode derives its ERC1155 id.
-    bytes32 public constant ROOT_NODE = 0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae;
+    // This project's actual .etn root (ETNNamehash.ETN_NODE — namehash("etn")), not upstream
+    // ENS's real ".eth" root this mock originally shipped with. wrapETH2LD needs a real,
+    // consistent root so it produces a realistic full-namehash token id (keccak256(ROOT_NODE,
+    // labelhash)), matching how the real NameWrapper's _wrapETH2LD/_makeNode derives its ERC1155
+    // id — and specifically so it agrees with ETNNamehash.etnNode() (used by
+    // PlanetZephyrosSubdomainNameServiceV2's unwrapped-name fallback checks) for the exact same
+    // label, which the previous mismatched placeholder didn't.
+    bytes32 public constant ROOT_NODE = 0x69a3977d40595dbc343e3fa6ddbd26dbe31cc237836622384941b3c5148974cd;
 
     MockBaseRegistrar public immutable base;
     mapping(uint256 => Data) private _data;

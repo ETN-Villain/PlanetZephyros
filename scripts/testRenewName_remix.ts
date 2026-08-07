@@ -5,7 +5,7 @@
 // marketplace-internal state (no domainActivated check, unlike setSubnamePricePerYear/listExistingName).
 //
 // Before running:
-//  1. Redeploy PlanetZephyrosSubdomainNameService (deployMarketplace_remix.ts) and fill in its new
+//  1. Redeploy PlanetZephyrosSubdomainNameServiceV2 (deployMarketplace_remix.ts) and fill in its new
 //     address below.
 //  2. Any funded account works — renewal isn't ownership-gated, matching the real registrar's
 //     own renew().

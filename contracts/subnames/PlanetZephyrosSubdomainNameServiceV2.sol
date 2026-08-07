@@ -31,7 +31,7 @@ import "./interfaces/IUniswapV2Router02Lite.sol";
 import "./interfaces/IBaseRegistrarLite.sol";
 import "../EnsSubdomainService/ETNNamehash.sol";
 
-contract PlanetZephyrosSubdomainNameService is Ownable, ReentrancyGuard {
+contract PlanetZephyrosSubdomainNameServiceV2 is Ownable, ReentrancyGuard {
     // ========================
     // Immutable protocol wiring
     // ========================
@@ -354,11 +354,20 @@ contract PlanetZephyrosSubdomainNameService is Ownable, ReentrancyGuard {
         bytes32 node,
         string calldata label
     ) external payable nonReentrant whenNotPaused returns (uint256 fee) {
-        _requireNodeOwner(node, label, msg.sender);
+        bool wasWrapped = _requireNodeOwner(node, label, msg.sender);
         require(!domainActivated[node], "Already activated");
 
         fee = _activationFee(node, label);
         require(msg.value >= fee, "Insufficient payment");
+
+        // A name registered directly through ETHRegistrarController and never wrapped only gets
+        // as far as this require/fee math via BaseRegistrar fallbacks — nothing downstream of
+        // activation (setSubnamePricePerYear, registerSubname, resale) works without the name
+        // actually being wrapped, since all of that reads NameWrapper directly. So activation
+        // itself now performs the wrap for that case, not just a flag flip.
+        if (!wasWrapped) {
+            _wrapDirectRegistration(label, msg.sender);
+        }
 
         domainActivated[node] = true;
         _settleActivation(fee);
@@ -375,18 +384,42 @@ contract PlanetZephyrosSubdomainNameService is Ownable, ReentrancyGuard {
     /// BaseRegistrar registrant for the unwrapped case — verifying label really matches node via
     /// ETNNamehash instead of nameWrapper.names(node), which is equally unset pre-wrap. Ownership
     /// and label-match stay separate requires (not one combined bool) so each keeps its own
-    /// distinct revert reason, same as before this fallback existed.
-    function _requireNodeOwner(bytes32 node, string calldata label, address account) internal view {
+    /// distinct revert reason, same as before this fallback existed. Returns whether the name was
+    /// already wrapped at check time, so activateDomain knows whether it still needs wrapping.
+    function _requireNodeOwner(
+        bytes32 node,
+        string calldata label,
+        address account
+    ) internal view returns (bool wasWrapped) {
         address wrappedOwner = nameWrapper.ownerOf(uint256(node));
         if (wrappedOwner != address(0)) {
             require(wrappedOwner == account, "Not name owner");
             require(_firstLabelMatches(nameWrapper.names(node), label), "Label mismatch");
-            return;
+            return true;
         }
 
         bytes32 labelHash = keccak256(bytes(label));
         require(baseRegistrar.ownerOf(uint256(labelHash)) == account, "Not name owner");
         require(ETNNamehash.etnNode(labelHash) == node, "Label mismatch");
+        return false;
+    }
+
+    /// @dev Pulls a directly-registered (never wrapped) name into NameWrapper custody, wrapped
+    /// straight back to its own owner. Mirrors _wrapAndActivate's exact approach for freshly
+    /// registered names (this contract becomes the momentary registrant, then wraps as itself —
+    /// nameWrapper.wrapETH2LD requires registrant == msg.sender, so this contract has to actually
+    /// hold the token to call it, not merely be approved for it) — the only difference is the
+    /// token starts out owned by `owner` instead of freshly registered to this contract, so it
+    /// has to be pulled in first via a standard ERC721 operator transfer. Requires `owner` to have
+    /// already called baseRegistrar.setApprovalForAll(address(this), true); reverts with a clear
+    /// reason if they haven't, rather than surfacing BaseRegistrar's own generic ERC721 revert.
+    function _wrapDirectRegistration(string calldata label, address owner) internal {
+        uint256 tokenId = uint256(keccak256(bytes(label)));
+        require(baseRegistrar.isApprovedForAll(owner, address(this)), "Approve BaseRegistrar first");
+
+        baseRegistrar.transferFrom(owner, address(this), tokenId);
+        baseRegistrar.approve(address(nameWrapper), tokenId);
+        nameWrapper.wrapETH2LD(label, owner, 0, defaultResolver);
     }
 
     /// @dev Split out of activateDomain to keep its stack usage low enough to compile without

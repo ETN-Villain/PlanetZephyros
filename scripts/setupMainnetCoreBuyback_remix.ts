@@ -12,12 +12,13 @@
 //
 import { ethers } from 'ethers'
 
-// PlanetZephyrosSubdomainNameService (renamed from PlanetZephyrosNameMarketplace), redeployed
-// 2026-08-07 to fix activateDomain for genuinely-unwrapped names — block 15201936, tx
-// 0x5ca6c4067ee99def86e20b79edad75a6beff82f5467aa0a00d80c1e11c47aa22. coreToken/swapRouter
+// PlanetZephyrosSubdomainNameServiceV2, redeployed 2026-08-07 so activateDomain actually wraps a
+// genuinely-unwrapped name (not just a flag flip) — block 15204649, tx
+// 0x01553f1f1c0fe57afa2c229ec2bfa3199a6339592425dea92965b5f570097d6e. coreToken/swapRouter
 // confirmed set correctly on this address after running this script.
-// (Prior deployment, now superseded: 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64, block 15188489.)
-const MARKETPLACE_ADDRESS = '0x775c9BF1516811349915fC50E471875252Bb5Ef3'
+// (Prior deployments, now superseded: 0x775c9BF1516811349915fC50E471875252Bb5Ef3 block 15201936;
+// 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64 block 15188489.)
+const MARKETPLACE_ADDRESS = '0xd9BC87b41c8011c9CaEeda91167cacfFD91Cd22c'
 
 // Electroneum mainnet — Planet Zephyros (CORE) token + its own router, verified on-chain
 // 2026-08-06: name()/symbol() match, routerAddress matches contracts/PlanetZephyrosV1.sol exactly.
