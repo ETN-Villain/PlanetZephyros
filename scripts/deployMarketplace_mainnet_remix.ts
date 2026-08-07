@@ -1,15 +1,24 @@
 // Deploys PlanetZephyrosSubdomainNameServiceV2 to Electroneum MAINNET via Remix's injected
 // provider.
 //
-// PRIOR DEPLOYMENTS (both superseded by this V2 — activateDomain "flag flip only, never actually
-// wraps the name" bug found live on mainnet, downstream functions like setSubnamePricePerYear
-// need the real wrap):
+// DEPLOYED 2026-08-07: 0xd9BC87b41c8011c9CaEeda91167cacfFD91Cd22c, block 15204649, tx
+// 0x01553f1f1c0fe57afa2c229ec2bfa3199a6339592425dea92965b5f570097d6e. Constructor wiring, fee
+// config, and CORE buyback wiring (coreToken/swapRouter, via setupMainnetCoreBuyback_remix.ts —
+// run right after this deploy, MARKETPLACE_ADDRESS updated first) all independently verified
+// against on-chain state. activateDomain's new "Approve BaseRegistrar first" revert confirmed
+// live via a read-only staticCall for planetzephyros.etn (real, still-unwrapped registration) —
+// reached correctly since that approval hasn't been granted to this address yet; the actual wrap
+// succeeding end-to-end is proven by the 48/48 local test suite, not yet by a real mainnet tx.
+//
+// PRIOR DEPLOYMENTS (all superseded — activateDomain "flag flip only, never actually wraps the
+// name" bug found live on mainnet via this exact name, downstream functions like
+// setSubnamePricePerYear need the real wrap):
 //  - 0x775c9BF1516811349915fC50E471875252Bb5Ef3 (block 15201936, tx
 //    0x5ca6c4067ee99def86e20b79edad75a6beff82f5467aa0a00d80c1e11c47aa22) — "PlanetZephyrosSubdomainNameService",
 //    fixed activateDomain's ownership/expiry checks for unwrapped names, deployed 2026-08-07.
 //  - 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64 (block 15188489, tx
 //    0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9) — original
-//    "PlanetZephyrosNameMarketplace" deployment. Both left live/untouched on-chain (not
+//    "PlanetZephyrosNameMarketplace" deployment. All three left live/untouched on-chain (not
 //    pausable-by-migration) — the frontend's MARKETPLACE_ADDRESS points at whichever is current.
 //
 // Before running:
