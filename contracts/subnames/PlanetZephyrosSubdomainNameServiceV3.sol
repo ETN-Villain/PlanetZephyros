@@ -31,7 +31,7 @@ import "./interfaces/IUniswapV2Router02Lite.sol";
 import "./interfaces/IBaseRegistrarLite.sol";
 import "../EnsSubdomainService/ETNNamehash.sol";
 
-contract PlanetZephyrosSubdomainNameServiceV2 is Ownable, ReentrancyGuard {
+contract PlanetZephyrosSubdomainNameServiceV3 is Ownable, ReentrancyGuard {
     // ========================
     // Immutable protocol wiring
     // ========================
@@ -437,7 +437,13 @@ contract PlanetZephyrosSubdomainNameServiceV2 is Ownable, ReentrancyGuard {
 
         IPriceOracle.Price memory p = registrarController.rentPrice(label, remaining);
         uint256 basePrice = p.base + p.premium;
-        fee = (basePrice * brokerageBps) / BPS_DENOM;
+        // Was a bare percentage calc — silently skipped the minBrokerageFeePerYear floor that
+        // quoteRegistration/quoteRenewal both correctly apply via this same helper. Confirmed
+        // live: community.etn's activation charged ~2,907 ETN instead of the ~25,000 ETN/year
+        // floor for its ~1 year remaining — an ~8.6x undercharge that would recur on every future
+        // activation, not just that one (rentPrice scales linearly with remaining, so the same
+        // shortfall ratio holds at any duration).
+        fee = _brokerageFeeFor(basePrice, remaining);
     }
 
     /// @dev Split out of activateDomain for the same reason as _activationFee.

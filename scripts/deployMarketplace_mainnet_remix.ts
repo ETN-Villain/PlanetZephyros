@@ -1,28 +1,31 @@
-// Deploys PlanetZephyrosSubdomainNameServiceV2 to Electroneum MAINNET via Remix's injected
+// Deploys PlanetZephyrosSubdomainNameServiceV3 to Electroneum MAINNET via Remix's injected
 // provider.
 //
-// DEPLOYED 2026-08-07: 0xd9BC87b41c8011c9CaEeda91167cacfFD91Cd22c, block 15204649, tx
-// 0x01553f1f1c0fe57afa2c229ec2bfa3199a6339592425dea92965b5f570097d6e. Constructor wiring, fee
-// config, and CORE buyback wiring (coreToken/swapRouter, via setupMainnetCoreBuyback_remix.ts —
-// run right after this deploy, MARKETPLACE_ADDRESS updated first) all independently verified
-// against on-chain state. activateDomain's new "Approve BaseRegistrar first" revert confirmed
-// live via a read-only staticCall for planetzephyros.etn (real, still-unwrapped registration) —
-// reached correctly since that approval hasn't been granted to this address yet; the actual wrap
-// succeeding end-to-end is proven by the 48/48 local test suite, not yet by a real mainnet tx.
+// WHY V3: _activationFee() computed a bare percentage fee, silently skipping the
+// minBrokerageFeePerYear floor that quoteRegistration/quoteRenewal both correctly apply via
+// _brokerageFeeFor. Confirmed live on V2: community.etn's activation charged ~2,907 ETN instead
+// of the ~25,000 ETN/year floor for its ~1 year remaining (~8.6x undercharge) — and since
+// rentPrice scales linearly with remaining duration, the same ratio recurs at any duration, not
+// just that one case. No admin parameter can compensate (brokerageBps is already at its
+// hard-coded MAX_BROKERAGE_BPS ceiling and still falls ~8.6x short of the floor), so this needed
+// new bytecode. Fix: _activationFee now calls _brokerageFeeFor(basePrice, remaining) — the exact
+// same helper registerName/renewName already use correctly, instead of a separate bare calc.
 //
-// PRIOR DEPLOYMENTS (all superseded — activateDomain "flag flip only, never actually wraps the
-// name" bug found live on mainnet via this exact name, downstream functions like
-// setSubnamePricePerYear need the real wrap):
+// PRIOR DEPLOYMENTS (all superseded):
+//  - 0xd9BC87b41c8011c9CaEeda91167cacfFD91Cd22c (block 15204649, tx
+//    0x01553f1f1c0fe57afa2c229ec2bfa3199a6339592425dea92965b5f570097d6e) — "PlanetZephyrosSubdomainNameServiceV2",
+//    fixed activateDomain to actually wrap unwrapped names (not just flip a flag), deployed
+//    2026-08-07. Has the activation-fee-floor bug this V3 fixes.
 //  - 0x775c9BF1516811349915fC50E471875252Bb5Ef3 (block 15201936, tx
 //    0x5ca6c4067ee99def86e20b79edad75a6beff82f5467aa0a00d80c1e11c47aa22) — "PlanetZephyrosSubdomainNameService",
 //    fixed activateDomain's ownership/expiry checks for unwrapped names, deployed 2026-08-07.
 //  - 0x1191C7c0558F52a7282C00Bc477aA16187C1fE64 (block 15188489, tx
 //    0xcdcf3bdfc327c74022690a98b955015bafb8185a63661fd3f0e891eebd78b6c9) — original
-//    "PlanetZephyrosNameMarketplace" deployment. All three left live/untouched on-chain (not
+//    "PlanetZephyrosNameMarketplace" deployment. All left live/untouched on-chain (not
 //    pausable-by-migration) — the frontend's MARKETPLACE_ADDRESS points at whichever is current.
 //
 // Before running:
-//  1. In Remix, compile contracts/subnames/PlanetZephyrosSubdomainNameServiceV2.sol with:
+//  1. In Remix, compile contracts/subnames/PlanetZephyrosSubdomainNameServiceV3.sol with:
 //       Solidity: 0.8.24, Enable optimization (200 runs), EVM Version: london, Enable viaIR
 //     (Advanced Configurations in the Solidity Compiler plugin.)
 //     EVM Version MUST be london, not the Remix default — Electroneum testnet rejected Cancun
@@ -61,7 +64,7 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       throw new Error('Set PROJECT_WALLET and OWNER at the top of this script before running.')
     }
 
-    const result = await deploy('PlanetZephyrosSubdomainNameServiceV2', [
+    const result = await deploy('PlanetZephyrosSubdomainNameServiceV3', [
       REGISTRAR_CONTROLLER,
       NAME_WRAPPER,
       BASE_REGISTRAR,
@@ -69,7 +72,7 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       PROJECT_WALLET,
       OWNER,
     ])
-    console.log(`PlanetZephyrosSubdomainNameServiceV2 deployed to MAINNET: ${result.address}`)
+    console.log(`PlanetZephyrosSubdomainNameServiceV3 deployed to MAINNET: ${result.address}`)
   } catch (e) {
     console.log(e.message)
   }

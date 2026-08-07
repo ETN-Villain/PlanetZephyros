@@ -28,7 +28,7 @@ const DEPLOYER_PRIVATE_KEY = vars.get("DEPLOYER_PRIVATE_KEY", process.env.DEPLOY
 const ELECTRONEUM_EXPLORER_API_KEY = process.env.ELECTRONEUM_EXPLORER_API_KEY || "not-required";
 
 // Electroneum's testnet EVM does not support Shanghai/Cancun opcodes (PUSH0, MCOPY) — confirmed
-// by an actual failed deployment ("invalid opcode: PUSH0"). PlanetZephyrosSubdomainNameServiceV2.sol's
+// by an actual failed deployment ("invalid opcode: PUSH0"). PlanetZephyrosSubdomainNameServiceV3.sol's
 // own dependency graph needs nothing newer than London (verified by isolating it from the rest
 // of this repo and compiling on its own); everything else in this project keeps the default
 // (some of it needs OZ v5 utils that use MCOPY), so only the marketplace contract is overridden
@@ -59,7 +59,7 @@ module.exports = {
       },
     ],
     overrides: {
-      "contracts/subnames/PlanetZephyrosSubdomainNameServiceV2.sol": {
+      "contracts/subnames/PlanetZephyrosSubdomainNameServiceV3.sol": {
         version: SOLC_VERSION,
         settings: {
           optimizer: { enabled: true, runs: 200 },
