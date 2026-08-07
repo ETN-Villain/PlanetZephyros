@@ -19,7 +19,7 @@ function subNodeFor(parentNode, label) {
   return ethers.keccak256(ethers.concat([parentNode, labelHash]));
 }
 
-describe("PlanetZephyrosSubdomainNameServiceV2", function () {
+describe("PlanetZephyrosSubdomainNameServiceV3", function () {
   async function deployFixture() {
     const [deployer, projectWallet, alice, bob, carol] = await ethers.getSigners();
 
@@ -42,7 +42,7 @@ describe("PlanetZephyrosSubdomainNameServiceV2", function () {
 
     const defaultResolver = ethers.Wallet.createRandom().address;
 
-    const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV2");
+    const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV3");
     const marketplace = await Marketplace.deploy(
       await controller.getAddress(),
       await wrapper.getAddress(),
@@ -163,7 +163,7 @@ describe("PlanetZephyrosSubdomainNameServiceV2", function () {
   describe("constructor", function () {
     it("reverts on zero addresses", async function () {
       const { controller, wrapper, base, projectWallet, deployer, defaultResolver } = await loadFixture(deployFixture);
-      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV2");
+      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV3");
 
       await expect(
         Marketplace.deploy(
@@ -380,7 +380,7 @@ describe("PlanetZephyrosSubdomainNameServiceV2", function () {
   describe("minBrokerageFeePerYear", function () {
     it("defaults to 25,000 ETN on a fresh deployment", async function () {
       const { controller, wrapper, base, projectWallet, deployer, defaultResolver } = await loadFixture(deployFixture);
-      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV2");
+      const Marketplace = await ethers.getContractFactory("PlanetZephyrosSubdomainNameServiceV3");
       const fresh = await Marketplace.deploy(
         await controller.getAddress(),
         await wrapper.getAddress(),
@@ -876,6 +876,49 @@ describe("PlanetZephyrosSubdomainNameServiceV2", function () {
         await expect(
           marketplace.connect(alice).activateDomain(nodeA, "neverwrapped3b", { value: ethers.parseEther("1000") })
         ).to.be.revertedWith("Label mismatch");
+      });
+
+      // Reproduces the real community.etn bug: _activationFee used to compute a bare percentage
+      // fee, never checking minBrokerageFeePerYear at all — unlike quoteRegistration/quoteRenewal,
+      // which both go through _brokerageFeeFor and correctly apply the floor. Confirmed live: a
+      // ~1-year-remaining activation charged ~2,907 ETN instead of the ~25,000 ETN/year floor
+      // (real mainnet pricing). Uses a much smaller floor here — 1,000 ETN, not 25,000 — purely
+      // because the mock's tiny per-second rate makes even the bps-based fee for a full year only
+      // ~15.77 ETH, and Hardhat's default test-account balance (10,000 ETH) can't cover a real
+      // 25,000 ETN fee regardless of value sent; 1,000 ETN still comfortably exceeds the ~15.77
+      // ETH bps fee, so it exercises exactly the same code path and bug.
+      it("applies the minBrokerageFeePerYear floor, not just the bps-based fee", async function () {
+        const ctx = await loadFixture(deployFixture);
+        const { marketplace, deployer, alice } = ctx;
+        await marketplace.connect(deployer).setMinBrokerageFeePerYear(ethers.parseEther("1000"));
+
+        const label = "floortestactivate";
+        const { node } = await registerDirectUnwrapped(ctx, alice, label);
+        await ctx.base.connect(alice).setApprovalForAll(await marketplace.getAddress(), true);
+
+        // ~1 year remaining (registerDirectUnwrapped registers for exactly ONE_YEAR), same
+        // ballpark as community.etn's real activation. Not asserted exactly equal to 1,000 ETN —
+        // the floor scales with `remaining`, which ticks down by however many seconds pass
+        // between this call and the next, so a tight tolerance (not an exact match) is what
+        // actually proves the floor applied, versus the ~15.77 ETH a bps-only calculation
+        // (the bug) would have given for the same duration.
+        const floorFee = await marketplace.connect(alice).activateDomain.staticCall(node, label, {
+          value: ethers.parseEther("2000"),
+        });
+        expect(floorFee).to.be.closeTo(ethers.parseEther("1000"), ethers.parseEther("1"));
+
+        const tx = await marketplace.connect(alice).activateDomain(node, label, { value: ethers.parseEther("2000") });
+        const receipt = await tx.wait();
+        const event = receipt.logs
+          .map((l) => {
+            try {
+              return marketplace.interface.parseLog(l);
+            } catch {
+              return null;
+            }
+          })
+          .find((e) => e && e.name === "DomainActivated");
+        expect(event.args.feePaid).to.be.closeTo(ethers.parseEther("1000"), ethers.parseEther("1"));
       });
     });
   });
