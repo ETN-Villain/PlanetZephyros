@@ -1,6 +1,14 @@
 // Deploys PlanetZephyrosSubdomainNameServiceV3 to Electroneum MAINNET via Remix's injected
 // provider.
 //
+// DEPLOYED 2026-08-08: 0x392fd031910e5D58650160f41a501ccc29B1eD13, block 15207471, tx
+// 0x4d685bffba22d0520dc16c76f15161698e2d7e967e1ace2a4c97fa945c5df318. Constructor wiring, fee
+// config, and CORE buyback wiring all independently verified against on-chain state; source
+// verified on the block explorer. The fee-floor fix confirmed by replicating community.etn's
+// exact original scenario (same duration, same registrarController.rentPrice) against this
+// contract's own on-chain brokerageBps/minBrokerageFeePerYear: correctly computes ~24,998.78 ETN
+// now, versus the ~2,906.84 ETN V2 actually charged.
+//
 // WHY V3: _activationFee() computed a bare percentage fee, silently skipping the
 // minBrokerageFeePerYear floor that quoteRegistration/quoteRenewal both correctly apply via
 // _brokerageFeeFor. Confirmed live on V2: community.etn's activation charged ~2,907 ETN instead
