@@ -3,11 +3,23 @@
 //   npx hardhat run scripts/deployPremiumSubscription.js --network electroneumTestnet
 //   npx hardhat run scripts/deployPremiumSubscription.js --network electroneumMainnet
 //
-// coreToken/swapRouter are deliberately NOT constructor args here (same separation as the
-// marketplace — see setupMainnetCoreBuyback_remix.ts): wire them up as a follow-up owner call
-// once you know which addresses to point at (the real CORE/router on mainnet, or freshly
-// deployed MockCoreToken/MockRouter on testnet via deployMockCoreAndRouter_remix.ts).
+// coreToken/swapRouter/marketplace/nameWrapper/erevosShares are deliberately NOT constructor args
+// here (same separation as the marketplace itself — see setupMainnetCoreBuyback_remix.ts): wired
+// up as follow-up owner calls once you know which addresses to point at (the real ones on
+// mainnet, or freshly deployed mocks on testnet — MockCoreToken/MockRouter via
+// deployMockCoreAndRouter_remix.ts, MockErevosShares/MockMarketplaceLite/MockNameWrapperLite
+// deployed ad hoc for testnet lifecycle testing since none of those three have a real testnet
+// deployment to point at).
 const hre = require("hardhat");
+
+// Network-scoped on purpose, same reasoning as deployMarketplace.js's loadDeploymentAddresses —
+// these are real, live mainnet addresses and must never silently apply to a testnet deploy.
+const MAINNET_DEFAULTS = {
+  marketplace: "0x392fd031910e5D58650160f41a501ccc29B1eD13", // PlanetZephyrosSubdomainNameServiceV3
+  nameWrapper: "0xd8F4B1A91469B05d9E0b15Cac4917Ee47b2A6f64",
+  // Confirmed live via Blockscout: verified ERC-721 "Erevos Shares" (EREVOS), 9/9 minted.
+  erevosShares: "0x120E438b5A79E447F78C7857c8E55C3674349f05",
+};
 
 async function main() {
   const operator = process.env.PREMIUM_OPERATOR_ADDRESS;
@@ -36,9 +48,34 @@ async function main() {
 
   const address = await premium.getAddress();
   console.log("PremiumSubscription deployed to:", address);
+
+  // Mainnet: wire the real addresses automatically (defaults above), overridable via env.
+  // Testnet: only wire what's explicitly provided — there's no real deployment of any of these
+  // three to default to, and silently leaving them unset is the correct/expected testnet state
+  // (isEligibleForFreeAccess/isActivatedDomainOwner simply return false, never revert — see the
+  // contract's own zero-address checks).
+  const isMainnet = hre.network.name === "electroneumMainnet";
+  const marketplace = process.env.PREMIUM_MARKETPLACE_ADDRESS || (isMainnet ? MAINNET_DEFAULTS.marketplace : null);
+  const nameWrapper = process.env.PREMIUM_NAME_WRAPPER_ADDRESS || (isMainnet ? MAINNET_DEFAULTS.nameWrapper : null);
+  const erevosShares = process.env.PREMIUM_EREVOS_SHARES_ADDRESS || (isMainnet ? MAINNET_DEFAULTS.erevosShares : null);
+
+  if (marketplace) {
+    console.log("Setting marketplace:", marketplace);
+    await (await premium.setMarketplace(marketplace)).wait();
+  }
+  if (nameWrapper) {
+    console.log("Setting nameWrapper:", nameWrapper);
+    await (await premium.setNameWrapper(nameWrapper)).wait();
+  }
+  if (erevosShares) {
+    console.log("Setting erevosShares:", erevosShares);
+    await (await premium.setErevosShares(erevosShares)).wait();
+  }
+
   console.log(
-    "Next: setCoreToken() + setSwapRouter() as the OWNER account, then confirm operator/split " +
-      "wiring before any real funds flow through purchasePnlPeriods."
+    "Next: setCoreToken() + setSwapRouter() as the OWNER account (mocks on testnet, the real " +
+      "CORE/router on mainnet), then confirm operator/split wiring before any real funds flow " +
+      "through purchasePnlPeriods."
   );
 
   const confirmations = Number(process.env.VERIFY_CONFIRMATIONS || 5);

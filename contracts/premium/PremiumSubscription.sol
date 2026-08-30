@@ -22,6 +22,16 @@ pragma solidity ^0.8.24;
  *     (on FINALIZED) or refundPnlPeriod (on a pre-finalize refund) — this contract trusts the
  *     operator to pass the right amount, since it doesn't itself track per-request bookkeeping.
  *
+ *     Four independent ways to get a period for free — a caller only needs to satisfy one:
+ *       a) an active membership (isMembershipActive)
+ *       b) an owner-maintained whitelist (setWhitelisted/setWhitelistedBatch)
+ *       c) holding at least one ErevosShares NFT (the 9-supply revenue-share collection —
+ *          setErevosShares wires the deployed address; unset means this path is simply unavailable)
+ *       d) owning an activated domain — the caller supplies the specific node they're claiming;
+ *          verified on-chain against the marketplace's domainActivated(node) AND the name
+ *          wrapper's ownerOf(node) == caller, so a bogus/unowned node claim just falls through to
+ *          the paid path rather than reverting (see isActivatedDomainOwner).
+ *
  *  3) Buy-and-burn: executeSplitForPeriod copies, unmodified, the proven swap-and-burn pattern
  *     already live in this repo's PlanetZephyrosSubdomainNameServiceV3.buyBackAndBurn() — half of
  *     whatever's released goes straight to splitDestination, the other half is swapped ETN->CORE
@@ -33,9 +43,12 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 import "../subnames/interfaces/IUniswapV2Router02Lite.sol";
 import "../subnames/interfaces/IBurnableERC20.sol";
+import "../subnames/interfaces/INameWrapperLite.sol";
+import "./interfaces/IMarketplaceLite.sol";
 
 contract PremiumSubscription is Ownable, ReentrancyGuard {
     // ========================
@@ -65,6 +78,27 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     mapping(address => uint256) public membershipExpiry;
 
     // ========================
+    // Free-access grants
+    // ========================
+    /// @notice Owner-maintained allowlist — an address here always gets PnL periods for free,
+    /// independent of membership.
+    mapping(address => bool) public whitelisted;
+
+    /// @notice ErevosShares (mainnet: 0x120E438b5A79E447F78C7857c8E55C3674349f05, the 9-supply
+    /// revenue-share NFT collection) — any holder (balanceOf > 0) gets PnL periods for free. Unset
+    /// (address(0)) simply disables this path, same zero-check convention as coreToken/swapRouter.
+    address public erevosShares;
+
+    /// @notice The marketplace contract (PlanetZephyrosSubdomainNameServiceV3) — source of truth
+    /// for domainActivated(node), used by isActivatedDomainOwner. Unset disables that path.
+    address public marketplace;
+
+    /// @notice ENS-fork NameWrapper — source of truth for who currently owns a given node, used by
+    /// isActivatedDomainOwner to confirm the caller actually owns the activated domain they're
+    /// claiming free access through. Unset disables that path.
+    address public nameWrapper;
+
+    // ========================
     // Buy-and-burn wiring
     // ========================
     address public coreToken;
@@ -90,6 +124,10 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     event SplitDestinationUpdated(address splitDestination);
     event OperatorUpdated(address operator);
     event PausedUpdated(bool paused);
+    event WhitelistUpdated(address indexed who, bool whitelisted);
+    event ErevosSharesUpdated(address erevosShares);
+    event MarketplaceUpdated(address marketplace);
+    event NameWrapperUpdated(address nameWrapper);
     event PnlPeriodSplitExecuted(address indexed operator, uint256 amountSplit, address splitWallet, uint256 coreReceived, uint256 coreBurned);
     event PnlPeriodRefunded(address indexed operator, address indexed to, uint256 amount);
 
@@ -144,22 +182,48 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
         return membershipExpiry[who] > block.timestamp;
     }
 
+    /// @notice True if `who` gets PnL periods free via membership, the whitelist, or holding an
+    /// ErevosShares NFT — every free path EXCEPT activated-domain ownership, which needs a node
+    /// argument and is checked separately by isActivatedDomainOwner. Public so the frontend can
+    /// show "Free" before the caller ever signs a transaction.
+    function isEligibleForFreeAccess(address who) public view returns (bool) {
+        if (isMembershipActive(who)) return true;
+        if (whitelisted[who]) return true;
+        if (erevosShares != address(0) && IERC721(erevosShares).balanceOf(who) > 0) return true;
+        return false;
+    }
+
+    /// @notice True if `who` currently owns `node` AND that node is marked activated on the
+    /// marketplace. Never reverts on a bogus/unowned/zero node — callers (purchasePnlPeriods) are
+    /// expected to fall through to isEligibleForFreeAccess or the paid path instead. Both
+    /// marketplace and nameWrapper must be wired (see setMarketplace/setNameWrapper) or this
+    /// always returns false.
+    function isActivatedDomainOwner(address who, bytes32 node) public view returns (bool) {
+        if (marketplace == address(0) || nameWrapper == address(0) || node == bytes32(0)) return false;
+        if (!IMarketplaceLite(marketplace).domainActivated(node)) return false;
+        return INameWrapperLite(nameWrapper).ownerOf(uint256(node)) == who;
+    }
+
     // ========================================================
     // PnL statement periods
     // ========================================================
 
     /// @notice Purchases numPeriods 12-month PnL statement periods for trackedWallet. Open to any
-    /// caller — NOT gated on membership. An active member (isMembershipActive(msg.sender)) pays
-    /// nothing; everyone else pays pnlPricePerPeriod * numPeriods. Funds (when non-zero) stay
-    /// escrowed in this contract; nothing is split here — the dashboard backend's watcher reads
-    /// this event to create statement requests, and later calls executeSplitForPeriod once its
-    /// own state machine reaches FINALIZED (see contract header). A free member purchase still
-    /// emits this event with amountPaid = 0 so the request pipeline is identical either way.
-    function purchasePnlPeriods(address trackedWallet, uint256 numPeriods) external payable whenNotPaused nonReentrant {
+    /// caller — NOT gated on membership. Free if isEligibleForFreeAccess(msg.sender) (active
+    /// membership, whitelist, or an ErevosShares NFT) OR the caller supplies activatedDomainNode
+    /// for a domain they currently own that's marked activated on the marketplace (pass
+    /// bytes32(0) to skip this path); everyone else pays pnlPricePerPeriod * numPeriods. Funds
+    /// (when non-zero) stay escrowed in this contract; nothing is split here — the dashboard
+    /// backend's watcher reads this event to create statement requests, and later calls
+    /// executeSplitForPeriod once its own state machine reaches FINALIZED (see contract header). A
+    /// free purchase still emits this event with amountPaid = 0 so the request pipeline is
+    /// identical either way.
+    function purchasePnlPeriods(address trackedWallet, uint256 numPeriods, bytes32 activatedDomainNode) external payable whenNotPaused nonReentrant {
         require(trackedWallet != address(0), "Zero tracked wallet");
         require(numPeriods >= 1, "numPeriods must be >= 1");
 
-        uint256 required = isMembershipActive(msg.sender) ? 0 : pnlPricePerPeriod * numPeriods;
+        bool free = isEligibleForFreeAccess(msg.sender) || isActivatedDomainOwner(msg.sender, activatedDomainNode);
+        uint256 required = free ? 0 : pnlPricePerPeriod * numPeriods;
         require(msg.value >= required, "Insufficient payment");
 
         uint256 refund = msg.value - required;
@@ -268,5 +332,33 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     function setPaused(bool _paused) external onlyOwner {
         paused = _paused;
         emit PausedUpdated(_paused);
+    }
+
+    function setWhitelisted(address who, bool value) external onlyOwner {
+        whitelisted[who] = value;
+        emit WhitelistUpdated(who, value);
+    }
+
+    /// @notice Same as setWhitelisted, for several addresses in one transaction.
+    function setWhitelistedBatch(address[] calldata whos, bool value) external onlyOwner {
+        for (uint256 i = 0; i < whos.length; i++) {
+            whitelisted[whos[i]] = value;
+            emit WhitelistUpdated(whos[i], value);
+        }
+    }
+
+    function setErevosShares(address _erevosShares) external onlyOwner {
+        erevosShares = _erevosShares;
+        emit ErevosSharesUpdated(_erevosShares);
+    }
+
+    function setMarketplace(address _marketplace) external onlyOwner {
+        marketplace = _marketplace;
+        emit MarketplaceUpdated(_marketplace);
+    }
+
+    function setNameWrapper(address _nameWrapper) external onlyOwner {
+        nameWrapper = _nameWrapper;
+        emit NameWrapperUpdated(_nameWrapper);
     }
 }
