@@ -67,6 +67,17 @@ module.exports = {
           evmVersion: "london",
         },
       },
+      // Same Electroneum testnet EVM constraint as the marketplace above (see that comment) —
+      // this contract's own logic needs nothing newer than London, so it gets the same override
+      // rather than risking a PUSH0/MCOPY opcode from the default cancun target.
+      "contracts/premium/PremiumSubscription.sol": {
+        version: SOLC_VERSION,
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          viaIR: true,
+          evmVersion: "london",
+        },
+      },
     },
   },
   networks: {
