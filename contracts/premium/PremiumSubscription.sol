@@ -4,33 +4,45 @@ pragma solidity ^0.8.24;
  * Premium Subscription
  *
  * Premium Feature #1 for the Electroneum dashboard (dashboard.planetzephyros.xyz — see
- * ETNSubdomainService repo). Pure payment/pricing/membership-gate/execution layer: this contract
- * does NOT track the PnL statement request lifecycle (PAID/PENDING_GENERATION/GENERATED/
- * FINALIZED) — that state machine lives in the dashboard backend's own database, driven by the
- * events this contract emits. This contract only ever escrows funds and, once told to by the
- * trusted operator, executes the buy-and-burn split or a refund.
+ * ETNSubdomainService repo). Pure payment/pricing/access/execution layer: this contract does NOT
+ * track the PnL statement request lifecycle (PAID/PENDING_GENERATION/GENERATED/FINALIZED) — that
+ * state machine lives in the dashboard backend's own database, driven by the events this contract
+ * emits. This contract only ever escrows funds and, once told to by the trusted operator,
+ * executes the buy-and-burn split or a refund.
  *
- *  1) Premium membership: subscribe() sells time-boxed membership at an owner-adjustable monthly
- *     price. Membership currently unlocks nothing on its own — it exists so future premium
- *     features can gate on isMembershipActive() — but it already does one thing today: an active
- *     member gets every PnL statement period for free (see purchasePnlPeriods).
+ *  1) Membership, two independent tiers:
+ *     - subscribe() sells monthly membership (membershipExpiry). Currently unlocks nothing on its
+ *       own — kept for future premium features to gate on isMembershipActive().
+ *     - subscribeAnnual() sells annual-tier membership (annualMembershipExpiry) — a SEPARATE,
+ *       structurally-larger commitment, tracked separately from monthly on purpose: it's the only
+ *       membership tier that discounts PnL statements (see isEligibleForDiscount). A cheap
+ *       one-month monthly signup must never come close to qualifying for the same discount an
+ *       annual subscriber pays for — that's the whole reason these are two different mappings
+ *       instead of one "isMembershipActive means discount" check.
  *
  *  2) PnL statement periods: purchasePnlPeriods() is open to any caller, not gated on membership.
- *     Non-members pay pnlPricePerPeriod per 12-month period (supports buying several periods for
- *     a wallet in one transaction); active members pay nothing. Funds stay escrowed in this
- *     contract until the dashboard backend's operator wallet later calls executeSplitForPeriod
- *     (on FINALIZED) or refundPnlPeriod (on a pre-finalize refund) — this contract trusts the
- *     operator to pass the right amount, since it doesn't itself track per-request bookkeeping.
+ *     Each purchase names one or more specific reporting periods (fixed calendar-year/UK/AU/US-
+ *     style shapes — this contract does not validate the shape itself, only that each period's
+ *     claimed end has already passed; the backend enforces the shape is one of the real four
+ *     before ever accepting a generation request for it, since it already needs the same calendar
+ *     logic to slice the FIFO ledger). Base price is pnlPricePerPeriod per period.
  *
- *     Four independent ways to get a period for free — a caller only needs to satisfy one:
- *       a) an active membership (isMembershipActive)
- *       b) an owner-maintained whitelist (setWhitelisted/setWhitelistedBatch)
- *       c) holding at least one ErevosShares NFT (the 9-supply revenue-share collection —
- *          setErevosShares wires the deployed address; unset means this path is simply unavailable)
- *       d) owning an activated domain — the caller supplies the specific node they're claiming;
- *          verified on-chain against the marketplace's domainActivated(node) AND the name
- *          wrapper's ownerOf(node) == caller, so a bogus/unowned node claim just falls through to
- *          the paid path rather than reverting (see isActivatedDomainOwner).
+ *     Discount model (confirmed design — see PR discussion, not guessed):
+ *       - 50% off EVERY period in the purchase if isEligibleForDiscount(msg.sender) is true
+ *         (active ANNUAL membership, the whitelist, or an ErevosShares NFT if that path is
+ *         enabled) OR the caller proves ownership of a specific activated domain via
+ *         activatedDomainNode (isActivatedDomainOwner, if that path is enabled).
+ *       - Otherwise (no discount path applies): the FIRST period in the purchase is full price,
+ *         and every SUBSEQUENT period in that same purchase is 2/3 price (33% off) — a multi-buy
+ *         incentive, not a discount-path perk. These two discount mechanisms never stack: a
+ *         discount-eligible caller pays the flat 50% price for every period, full stop, with no
+ *         additional multi-buy reduction layered on top.
+ *
+ *     Funds (when non-zero) stay escrowed in this contract; nothing is split here — the dashboard
+ *     backend's watcher reads the per-period PnlPeriodPurchased events to create statement
+ *     requests, and later calls executeSplitForPeriod once its own state machine reaches
+ *     FINALIZED for a given request — this contract has no visibility into that state machine and
+ *     trusts the operator's `amount` on that call.
  *
  *  3) Buy-and-burn: executeSplitForPeriod copies, unmodified, the proven swap-and-burn pattern
  *     already live in this repo's PlanetZephyrosSubdomainNameServiceV3.buyBackAndBurn() — half of
@@ -62,32 +74,52 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     address public operator;
 
     // ========================
-    // Pricing
+    // Membership pricing (two independent tiers — see contract header)
     // ========================
     uint256 public constant SECONDS_PER_MONTH = 30 days;
+    uint256 public constant SECONDS_PER_YEAR = 365 days;
 
-    /// @notice Owner-adjustable ETN price per 30-day membership period. Starts at 5,000 ETN/mo.
+    /// @notice Owner-adjustable ETN price per 30-day monthly membership period. Starts at 5,000
+    /// ETN/mo. Does NOT grant the PnL discount — see annualMembershipPricePerYear.
     uint256 public membershipPricePerMonth = 5_000 ether;
 
-    /// @notice Owner-adjustable ETN price per 12-month PnL statement period, charged only to
-    /// callers without an active membership. Starts at 10,000 ETN/period.
-    uint256 public pnlPricePerPeriod = 10_000 ether;
+    /// @notice Owner-adjustable ETN price per 365-day annual membership period. Starts at 40,000
+    /// ETN/yr (matches the original premium-dashboard brief's annual price point). ONLY this tier
+    /// grants isEligibleForDiscount's 50%-off PnL pricing.
+    uint256 public annualMembershipPricePerYear = 40_000 ether;
 
-    /// @notice Membership expiry (unix timestamp) per address. 0 / in the past = no active
-    /// membership.
+    /// @notice Monthly membership expiry (unix timestamp) per address. 0 / in the past = inactive.
     mapping(address => uint256) public membershipExpiry;
 
+    /// @notice Annual membership expiry (unix timestamp) per address — separate from
+    /// membershipExpiry on purpose (see contract header). 0 / in the past = inactive.
+    mapping(address => uint256) public annualMembershipExpiry;
+
     // ========================
-    // Free-access grants
+    // PnL statement period pricing
     // ========================
-    /// @notice Owner-maintained allowlist — an address here always gets PnL periods for free,
+    /// @notice Owner-adjustable ETN base price per statement period. Starts at 15,000 ETN.
+    uint256 public pnlPricePerPeriod = 15_000 ether;
+
+    /// @notice Sanity ceiling on how many periods one purchasePnlPeriods call can cover — avoids
+    /// an unbounded loop / gas-griefing call. Comfortably above any realistic single order.
+    uint256 public constant MAX_PERIODS_PER_PURCHASE = 12;
+
+    // ========================
+    // Discount grants
+    // ========================
+    /// @notice Owner-maintained allowlist — an address here gets the 50% PnL discount,
     /// independent of membership.
     mapping(address => bool) public whitelisted;
 
     /// @notice ErevosShares (mainnet: 0x120E438b5A79E447F78C7857c8E55C3674349f05, the 9-supply
-    /// revenue-share NFT collection) — any holder (balanceOf > 0) gets PnL periods for free. Unset
-    /// (address(0)) simply disables this path, same zero-check convention as coreToken/swapRouter.
+    /// revenue-share NFT collection) — any holder (balanceOf > 0) gets the 50% discount when
+    /// erevosDiscountEnabled is true. Unset (address(0)) disables this path regardless of the flag.
     address public erevosShares;
+
+    /// @notice Owner on/off switch for the ErevosShares discount path, independent of whether
+    /// erevosShares itself is wired — lets the owner disable the perk without clearing the address.
+    bool public erevosDiscountEnabled = true;
 
     /// @notice The marketplace contract (PlanetZephyrosSubdomainNameServiceV3) — source of truth
     /// for domainActivated(node), used by isActivatedDomainOwner. Unset disables that path.
@@ -95,8 +127,12 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
 
     /// @notice ENS-fork NameWrapper — source of truth for who currently owns a given node, used by
     /// isActivatedDomainOwner to confirm the caller actually owns the activated domain they're
-    /// claiming free access through. Unset disables that path.
+    /// claiming the discount through. Unset disables that path.
     address public nameWrapper;
+
+    /// @notice Owner on/off switch for the activated-domain discount path, same reasoning as
+    /// erevosDiscountEnabled.
+    bool public activatedDomainDiscountEnabled = true;
 
     // ========================
     // Buy-and-burn wiring
@@ -113,11 +149,43 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     bool public paused;
 
     // ========================
+    // Period identification (informational — see contract header on why the contract doesn't
+    // validate the calendar shape itself)
+    // ========================
+    /// @notice Which of the four fixed reporting-period shapes a purchased period represents —
+    /// logged for the backend/frontend, not interpreted on-chain.
+    enum PeriodType {
+        CalendarYear, // Jan 1 - Dec 31
+        UKStyle, // Apr 1 - Mar 31 (UK/India/Japan/Canada/South Africa)
+        AUStyle, // Jul 1 - Jun 30 (Australia/NZ/Egypt/Pakistan)
+        USStyle // Oct 1 - Sep 30 (US federal/Thailand)
+    }
+
+    /// @notice One period being purchased: which shape, which year identifies the specific
+    /// instance of that shape (e.g. 2025), and the exact end timestamp the backend computed for
+    /// it. periodEnd is the only field this contract actually validates (must already be in the
+    /// past) — periodType/year are carried through purely for logging/statement-labeling.
+    struct PeriodClaim {
+        PeriodType periodType;
+        uint16 year;
+        uint64 periodEnd;
+    }
+
+    // ========================
     // Events
     // ========================
     event MembershipPurchased(address indexed subscriber, uint256 numMonths, uint256 paid, uint256 newExpiry);
-    event PnlPeriodsPurchased(address indexed payer, address indexed trackedWallet, uint256 numPeriods, uint256 amountPaid);
+    event AnnualMembershipPurchased(address indexed subscriber, uint256 numYears, uint256 paid, uint256 newExpiry);
+    event PnlPeriodPurchased(
+        address indexed payer,
+        address indexed trackedWallet,
+        PeriodType periodType,
+        uint16 year,
+        uint64 periodEnd,
+        uint256 amountPaid
+    );
     event MembershipPricePerMonthUpdated(uint256 membershipPricePerMonth);
+    event AnnualMembershipPricePerYearUpdated(uint256 annualMembershipPricePerYear);
     event PnlPricePerPeriodUpdated(uint256 pnlPricePerPeriod);
     event CoreTokenUpdated(address coreToken);
     event SwapRouterUpdated(address swapRouter);
@@ -126,8 +194,10 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     event PausedUpdated(bool paused);
     event WhitelistUpdated(address indexed who, bool whitelisted);
     event ErevosSharesUpdated(address erevosShares);
+    event ErevosDiscountEnabledUpdated(bool enabled);
     event MarketplaceUpdated(address marketplace);
     event NameWrapperUpdated(address nameWrapper);
+    event ActivatedDomainDiscountEnabledUpdated(bool enabled);
     event PnlPeriodSplitExecuted(address indexed operator, uint256 amountSplit, address splitWallet, uint256 coreReceived, uint256 coreBurned);
     event PnlPeriodRefunded(address indexed operator, address indexed to, uint256 amount);
 
@@ -155,10 +225,10 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     // Membership
     // ========================================================
 
-    /// @notice Extends msg.sender's membership by numMonths 30-day periods, from whichever is
-    /// later of their current expiry or now (so buying more time before expiry doesn't waste the
-    /// remainder). Excess msg.value beyond the exact price is refunded, same convention as
-    /// PlanetZephyrosSubdomainNameServiceV3's registerName/activateDomain.
+    /// @notice Extends msg.sender's monthly membership by numMonths 30-day periods, from
+    /// whichever is later of their current expiry or now. Excess msg.value is refunded, same
+    /// convention as PlanetZephyrosSubdomainNameServiceV3's registerName/activateDomain. Does NOT
+    /// grant the PnL discount — see subscribeAnnual.
     function subscribe(uint256 numMonths) external payable whenNotPaused nonReentrant {
         require(numMonths >= 1, "numMonths must be >= 1");
 
@@ -178,27 +248,56 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
         emit MembershipPurchased(msg.sender, numMonths, required, newExpiry);
     }
 
+    /// @notice Extends msg.sender's ANNUAL membership by numYears 365-day periods, same
+    /// stack-from-later-of-expiry-or-now / excess-refund conventions as subscribe(). This is the
+    /// only membership tier that grants isEligibleForDiscount's 50% PnL discount — see contract
+    /// header for why monthly and annual are tracked completely separately.
+    function subscribeAnnual(uint256 numYears) external payable whenNotPaused nonReentrant {
+        require(numYears >= 1, "numYears must be >= 1");
+
+        uint256 required = annualMembershipPricePerYear * numYears;
+        require(msg.value >= required, "Insufficient payment");
+
+        uint256 base = annualMembershipExpiry[msg.sender] > block.timestamp ? annualMembershipExpiry[msg.sender] : block.timestamp;
+        uint256 newExpiry = base + (numYears * SECONDS_PER_YEAR);
+        annualMembershipExpiry[msg.sender] = newExpiry;
+
+        uint256 refund = msg.value - required;
+        if (refund > 0) {
+            (bool ok, ) = payable(msg.sender).call{value: refund}("");
+            require(ok, "Refund failed");
+        }
+
+        emit AnnualMembershipPurchased(msg.sender, numYears, required, newExpiry);
+    }
+
     function isMembershipActive(address who) public view returns (bool) {
         return membershipExpiry[who] > block.timestamp;
     }
 
-    /// @notice True if `who` gets PnL periods free via membership, the whitelist, or holding an
-    /// ErevosShares NFT — every free path EXCEPT activated-domain ownership, which needs a node
-    /// argument and is checked separately by isActivatedDomainOwner. Public so the frontend can
-    /// show "Free" before the caller ever signs a transaction.
-    function isEligibleForFreeAccess(address who) public view returns (bool) {
-        if (isMembershipActive(who)) return true;
+    function isAnnualMember(address who) public view returns (bool) {
+        return annualMembershipExpiry[who] > block.timestamp;
+    }
+
+    /// @notice True if `who` gets the 50% PnL discount via annual membership, the whitelist, or
+    /// holding an ErevosShares NFT (when that path is enabled) — every discount path EXCEPT
+    /// activated-domain ownership, which needs a node argument and is checked separately by
+    /// isActivatedDomainOwner. Public so the frontend can show the discounted price before the
+    /// caller ever signs a transaction. Monthly membership (isMembershipActive) deliberately does
+    /// NOT appear here — see contract header.
+    function isEligibleForDiscount(address who) public view returns (bool) {
+        if (isAnnualMember(who)) return true;
         if (whitelisted[who]) return true;
-        if (erevosShares != address(0) && IERC721(erevosShares).balanceOf(who) > 0) return true;
+        if (erevosDiscountEnabled && erevosShares != address(0) && IERC721(erevosShares).balanceOf(who) > 0) return true;
         return false;
     }
 
-    /// @notice True if `who` currently owns `node` AND that node is marked activated on the
-    /// marketplace. Never reverts on a bogus/unowned/zero node — callers (purchasePnlPeriods) are
-    /// expected to fall through to isEligibleForFreeAccess or the paid path instead. Both
-    /// marketplace and nameWrapper must be wired (see setMarketplace/setNameWrapper) or this
-    /// always returns false.
+    /// @notice True if the activated-domain discount path is enabled AND `who` currently owns
+    /// `node` AND that node is marked activated on the marketplace. Never reverts on a bogus/
+    /// unowned/zero node or a disabled/unwired path — callers (purchasePnlPeriods) are expected to
+    /// fall through to isEligibleForDiscount or the full/multi-buy price instead.
     function isActivatedDomainOwner(address who, bytes32 node) public view returns (bool) {
+        if (!activatedDomainDiscountEnabled) return false;
         if (marketplace == address(0) || nameWrapper == address(0) || node == bytes32(0)) return false;
         if (!IMarketplaceLite(marketplace).domainActivated(node)) return false;
         return INameWrapperLite(nameWrapper).ownerOf(uint256(node)) == who;
@@ -208,31 +307,48 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     // PnL statement periods
     // ========================================================
 
-    /// @notice Purchases numPeriods 12-month PnL statement periods for trackedWallet. Open to any
-    /// caller — NOT gated on membership. Free if isEligibleForFreeAccess(msg.sender) (active
-    /// membership, whitelist, or an ErevosShares NFT) OR the caller supplies activatedDomainNode
-    /// for a domain they currently own that's marked activated on the marketplace (pass
-    /// bytes32(0) to skip this path); everyone else pays pnlPricePerPeriod * numPeriods. Funds
-    /// (when non-zero) stay escrowed in this contract; nothing is split here — the dashboard
-    /// backend's watcher reads this event to create statement requests, and later calls
-    /// executeSplitForPeriod once its own state machine reaches FINALIZED (see contract header). A
-    /// free purchase still emits this event with amountPaid = 0 so the request pipeline is
-    /// identical either way.
-    function purchasePnlPeriods(address trackedWallet, uint256 numPeriods, bytes32 activatedDomainNode) external payable whenNotPaused nonReentrant {
+    /// @notice Purchases one or more specific PnL statement periods for trackedWallet in a single
+    /// order. Each entry in `periods` must have already ended (periodEnd <= now) — the contract
+    /// rejects payment for a period that can't yet be fulfilled, before any generation is ever
+    /// requested. Pricing per contract header: if the caller is discount-eligible (annual member,
+    /// whitelisted, ErevosShares holder with that path enabled, OR proves ownership of
+    /// activatedDomainNode with that path enabled), every period costs pnlPricePerPeriod / 2.
+    /// Otherwise the first period in `periods` costs pnlPricePerPeriod and every period after it
+    /// costs pnlPricePerPeriod * 2/3 — these two mechanisms never stack. Emits one
+    /// PnlPeriodPurchased event per period (each with its own exact price paid), which is what the
+    /// dashboard backend's watcher uses to create one statement request per period — never from a
+    /// client-submitted claim.
+    function purchasePnlPeriods(address trackedWallet, PeriodClaim[] calldata periods, bytes32 activatedDomainNode) external payable whenNotPaused nonReentrant {
         require(trackedWallet != address(0), "Zero tracked wallet");
-        require(numPeriods >= 1, "numPeriods must be >= 1");
+        require(periods.length >= 1, "Must purchase at least one period");
+        require(periods.length <= MAX_PERIODS_PER_PURCHASE, "Too many periods in one purchase");
 
-        bool free = isEligibleForFreeAccess(msg.sender) || isActivatedDomainOwner(msg.sender, activatedDomainNode);
-        uint256 required = free ? 0 : pnlPricePerPeriod * numPeriods;
-        require(msg.value >= required, "Insufficient payment");
+        bool discounted = isEligibleForDiscount(msg.sender) || isActivatedDomainOwner(msg.sender, activatedDomainNode);
+        uint256 discountedPrice = pnlPricePerPeriod / 2;
+        uint256 multiBuyPrice = (pnlPricePerPeriod * 2) / 3;
 
-        uint256 refund = msg.value - required;
+        uint256 total = 0;
+        for (uint256 i = 0; i < periods.length; i++) {
+            require(periods[i].periodEnd <= block.timestamp, "Period has not ended yet");
+
+            uint256 price;
+            if (discounted) {
+                price = discountedPrice;
+            } else {
+                price = (i == 0) ? pnlPricePerPeriod : multiBuyPrice;
+            }
+            total += price;
+
+            emit PnlPeriodPurchased(msg.sender, trackedWallet, periods[i].periodType, periods[i].year, periods[i].periodEnd, price);
+        }
+
+        require(msg.value >= total, "Insufficient payment");
+
+        uint256 refund = msg.value - total;
         if (refund > 0) {
             (bool ok, ) = payable(msg.sender).call{value: refund}("");
             require(ok, "Refund failed");
         }
-
-        emit PnlPeriodsPurchased(msg.sender, trackedWallet, numPeriods, required);
     }
 
     // ========================================================
@@ -302,6 +418,11 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
         emit MembershipPricePerMonthUpdated(_membershipPricePerMonth);
     }
 
+    function setAnnualMembershipPricePerYear(uint256 _annualMembershipPricePerYear) external onlyOwner {
+        annualMembershipPricePerYear = _annualMembershipPricePerYear;
+        emit AnnualMembershipPricePerYearUpdated(_annualMembershipPricePerYear);
+    }
+
     function setPnlPricePerPeriod(uint256 _pnlPricePerPeriod) external onlyOwner {
         pnlPricePerPeriod = _pnlPricePerPeriod;
         emit PnlPricePerPeriodUpdated(_pnlPricePerPeriod);
@@ -352,6 +473,11 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
         emit ErevosSharesUpdated(_erevosShares);
     }
 
+    function setErevosDiscountEnabled(bool enabled) external onlyOwner {
+        erevosDiscountEnabled = enabled;
+        emit ErevosDiscountEnabledUpdated(enabled);
+    }
+
     function setMarketplace(address _marketplace) external onlyOwner {
         marketplace = _marketplace;
         emit MarketplaceUpdated(_marketplace);
@@ -360,5 +486,10 @@ contract PremiumSubscription is Ownable, ReentrancyGuard {
     function setNameWrapper(address _nameWrapper) external onlyOwner {
         nameWrapper = _nameWrapper;
         emit NameWrapperUpdated(_nameWrapper);
+    }
+
+    function setActivatedDomainDiscountEnabled(bool enabled) external onlyOwner {
+        activatedDomainDiscountEnabled = enabled;
+        emit ActivatedDomainDiscountEnabledUpdated(enabled);
     }
 }

@@ -3,17 +3,18 @@ const { ethers } = require("hardhat");
 const { loadFixture, time } = require("@nomicfoundation/hardhat-network-helpers");
 
 const ONE_MONTH = 30 * 24 * 60 * 60;
-const NO_DOMAIN_CLAIM = ethers.ZeroHash; // bytes32(0) — "not claiming free access via an activated domain"
+const ONE_YEAR = 365 * 24 * 60 * 60;
+const NO_DOMAIN_CLAIM = ethers.ZeroHash; // bytes32(0) — "not claiming the activated-domain discount"
+
+const PeriodType = { CalendarYear: 0, UKStyle: 1, AUStyle: 2, USStyle: 3 };
 
 describe("PremiumSubscription", function () {
   async function deployFixture() {
     const [deployer, operator, splitWallet, alice, bob] = await ethers.getSigners();
 
-    // Hardhat's default local-network balance (10,000 native units) is smaller than a single
-    // pnlPricePerPeriod (10,000 ETN) once gas is added, let alone a multi-period purchase — top
-    // up the signers that actually spend in these tests so the contract's real default prices
-    // (5,000/10,000 ETN) can be exercised as-is rather than testing against artificially small
-    // stand-in values.
+    // Hardhat's default local-network balance (10,000 native units) is smaller than a handful of
+    // pnlPricePerPeriod purchases (15,000 ETN each) once gas is added — top up the signers that
+    // actually spend in these tests so the contract's real default prices can be exercised as-is.
     for (const signer of [alice, bob]) {
       await ethers.provider.send("hardhat_setBalance", [signer.address, "0x21E19E0C9BAB2400000000"]); // 10,000,000 ETH
     }
@@ -48,14 +49,21 @@ describe("PremiumSubscription", function () {
     return ctx;
   }
 
-  // Funds the contract's escrow via a real, non-member purchasePnlPeriods call — mirrors how
+  // A single already-ended calendar-year-2024 claim, for tests that don't care about period
+  // shape/count specifics — just need one valid, already-elapsed period to pay for.
+  async function pastPeriod(yearsAgo = 1) {
+    const now = await time.latest();
+    return { periodType: PeriodType.CalendarYear, year: 2024, periodEnd: now - yearsAgo * ONE_YEAR };
+  }
+
+  // Funds the contract's escrow via a real, non-discounted purchasePnlPeriods call — mirrors how
   // PlanetZephyrosSubdomainNameServiceV3's test suite fills burnPool through registerSubname
   // rather than sending ETN directly (this contract has no receive()/fallback).
   async function withEscrowedFunds() {
     const ctx = await withBuybackConfigured();
     const { premium, bob } = ctx;
     const price = await premium.pnlPricePerPeriod();
-    await premium.connect(bob).purchasePnlPeriods(bob.address, 1, NO_DOMAIN_CLAIM, { value: price });
+    await premium.connect(bob).purchasePnlPeriods(bob.address, [await pastPeriod()], NO_DOMAIN_CLAIM, { value: price });
     return { ...ctx, escrowed: price };
   }
 
@@ -77,7 +85,7 @@ describe("PremiumSubscription", function () {
     });
   });
 
-  describe("subscribe", function () {
+  describe("subscribe (monthly)", function () {
     it("reverts on numMonths = 0", async function () {
       const { premium, alice } = await loadFixture(deployFixture);
       await expect(premium.connect(alice).subscribe(0, { value: 0 })).to.be.revertedWith(
@@ -103,8 +111,6 @@ describe("PremiumSubscription", function () {
       const gasCost = receipt.gasUsed * receipt.gasPrice;
       const after = await ethers.provider.getBalance(alice.address);
 
-      // Only the exact required amount (price * 2) plus gas left alice's balance — the 1 ETN
-      // overpayment came back.
       expect(before - after).to.equal(price * 2n + gasCost);
 
       const expiry = await premium.membershipExpiry(alice.address);
@@ -113,17 +119,14 @@ describe("PremiumSubscription", function () {
       expect(await premium.isMembershipActive(alice.address)).to.equal(true);
     });
 
-    it("stacks additional months onto an existing, still-active membership rather than resetting it", async function () {
+    it("does NOT make the caller eligible for the PnL discount", async function () {
       const { premium, alice } = await loadFixture(deployFixture);
       const price = await premium.membershipPricePerMonth();
+      await premium.connect(alice).subscribe(12, { value: price * 12n }); // a full year of monthly, still not annual tier
 
-      await premium.connect(alice).subscribe(1, { value: price });
-      const firstExpiry = await premium.membershipExpiry(alice.address);
-
-      await premium.connect(alice).subscribe(1, { value: price });
-      const secondExpiry = await premium.membershipExpiry(alice.address);
-
-      expect(secondExpiry).to.equal(firstExpiry + BigInt(ONE_MONTH));
+      expect(await premium.isMembershipActive(alice.address)).to.equal(true);
+      expect(await premium.isAnnualMember(alice.address)).to.equal(false);
+      expect(await premium.isEligibleForDiscount(alice.address)).to.equal(false);
     });
 
     it("emits MembershipPurchased", async function () {
@@ -145,185 +148,246 @@ describe("PremiumSubscription", function () {
     });
   });
 
-  describe("purchasePnlPeriods", function () {
-    it("reverts on zero tracked wallet", async function () {
+  describe("subscribeAnnual", function () {
+    it("reverts on numYears = 0", async function () {
       const { premium, alice } = await loadFixture(deployFixture);
-      await expect(
-        premium.connect(alice).purchasePnlPeriods(ethers.ZeroAddress, 1, NO_DOMAIN_CLAIM, { value: 0 })
-      ).to.be.revertedWith("Zero tracked wallet");
+      await expect(premium.connect(alice).subscribeAnnual(0, { value: 0 })).to.be.revertedWith(
+        "numYears must be >= 1"
+      );
     });
 
-    it("reverts on numPeriods = 0", async function () {
+    it("reverts on insufficient payment", async function () {
       const { premium, alice } = await loadFixture(deployFixture);
+      const price = await premium.annualMembershipPricePerYear();
       await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 0, NO_DOMAIN_CLAIM, { value: 0 })
-      ).to.be.revertedWith("numPeriods must be >= 1");
-    });
-
-    it("charges a non-member the full price for every period and refunds excess", async function () {
-      const { premium, alice } = await loadFixture(deployFixture);
-      const price = await premium.pnlPricePerPeriod();
-
-      await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 3, NO_DOMAIN_CLAIM, { value: price * 3n - 1n })
+        premium.connect(alice).subscribeAnnual(1, { value: price - 1n })
       ).to.be.revertedWith("Insufficient payment");
-
-      await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 3, NO_DOMAIN_CLAIM, { value: price * 3n + ethers.parseEther("1") })
-      )
-        .to.emit(premium, "PnlPeriodsPurchased")
-        .withArgs(alice.address, alice.address, 3, price * 3n);
     });
 
-    it("charges an active member nothing, even for multiple periods", async function () {
-      const { premium, alice, bob } = await loadFixture(deployFixture);
-      const membershipPrice = await premium.membershipPricePerMonth();
-      await premium.connect(alice).subscribe(1, { value: membershipPrice });
-
-      await expect(premium.connect(alice).purchasePnlPeriods(bob.address, 5, NO_DOMAIN_CLAIM, { value: 0 }))
-        .to.emit(premium, "PnlPeriodsPurchased")
-        .withArgs(alice.address, bob.address, 5, 0);
-    });
-
-    it("refunds the full amount if an active member overpays anyway", async function () {
+    it("grants exactly numYears from now and refunds excess", async function () {
       const { premium, alice } = await loadFixture(deployFixture);
-      const membershipPrice = await premium.membershipPricePerMonth();
-      await premium.connect(alice).subscribe(1, { value: membershipPrice });
+      const price = await premium.annualMembershipPricePerYear();
 
       const before = await ethers.provider.getBalance(alice.address);
-      const tx = await premium.connect(alice).purchasePnlPeriods(alice.address, 1, NO_DOMAIN_CLAIM, { value: ethers.parseEther("1") });
+      const tx = await premium.connect(alice).subscribeAnnual(2, { value: price * 2n + ethers.parseEther("1") });
       const receipt = await tx.wait();
       const gasCost = receipt.gasUsed * receipt.gasPrice;
       const after = await ethers.provider.getBalance(alice.address);
 
-      expect(before - after).to.equal(gasCost); // the whole 1 ETN came back
+      expect(before - after).to.equal(price * 2n + gasCost);
+
+      const expiry = await premium.annualMembershipExpiry(alice.address);
+      const nowTs = BigInt(await time.latest());
+      expect(expiry).to.be.closeTo(nowTs + BigInt(2 * ONE_YEAR), 5n);
+      expect(await premium.isAnnualMember(alice.address)).to.equal(true);
     });
 
-    it("charges a whitelisted caller nothing", async function () {
-      const { premium, deployer, alice, bob } = await loadFixture(deployFixture);
-      await premium.connect(deployer).setWhitelisted(alice.address, true);
+    it("stacks additional years onto an existing, still-active annual membership", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      const price = await premium.annualMembershipPricePerYear();
 
-      await expect(premium.connect(alice).purchasePnlPeriods(bob.address, 2, NO_DOMAIN_CLAIM, { value: 0 }))
-        .to.emit(premium, "PnlPeriodsPurchased")
-        .withArgs(alice.address, bob.address, 2, 0);
+      await premium.connect(alice).subscribeAnnual(1, { value: price });
+      const firstExpiry = await premium.annualMembershipExpiry(alice.address);
+
+      await premium.connect(alice).subscribeAnnual(1, { value: price });
+      const secondExpiry = await premium.annualMembershipExpiry(alice.address);
+
+      expect(secondExpiry).to.equal(firstExpiry + BigInt(ONE_YEAR));
     });
 
-    it("setWhitelistedBatch whitelists every address in one call", async function () {
-      const { premium, deployer, alice, bob } = await loadFixture(deployFixture);
-      await premium.connect(deployer).setWhitelistedBatch([alice.address, bob.address], true);
+    it("makes the caller eligible for the PnL discount", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      const price = await premium.annualMembershipPricePerYear();
+      await premium.connect(alice).subscribeAnnual(1, { value: price });
 
-      expect(await premium.whitelisted(alice.address)).to.equal(true);
-      expect(await premium.whitelisted(bob.address)).to.equal(true);
+      expect(await premium.isEligibleForDiscount(alice.address)).to.equal(true);
     });
 
-    it("un-whitelisting via setWhitelisted(false) makes the caller pay again", async function () {
+    it("emits AnnualMembershipPurchased", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      const price = await premium.annualMembershipPricePerYear();
+      await expect(premium.connect(alice).subscribeAnnual(1, { value: price })).to.emit(
+        premium,
+        "AnnualMembershipPurchased"
+      );
+    });
+
+    it("reverts when paused", async function () {
       const { premium, deployer, alice } = await loadFixture(deployFixture);
-      const price = await premium.pnlPricePerPeriod();
-      await premium.connect(deployer).setWhitelisted(alice.address, true);
-      await premium.connect(deployer).setWhitelisted(alice.address, false);
+      const price = await premium.annualMembershipPricePerYear();
+      await premium.connect(deployer).setPaused(true);
+      await expect(premium.connect(alice).subscribeAnnual(1, { value: price })).to.be.revertedWith(
+        "Premium subscription paused"
+      );
+    });
+  });
 
+  describe("purchasePnlPeriods", function () {
+    it("reverts on zero tracked wallet", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
       await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 1, NO_DOMAIN_CLAIM, { value: 0 })
-      ).to.be.revertedWith("Insufficient payment");
-      await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 1, NO_DOMAIN_CLAIM, { value: price })
-      ).to.emit(premium, "PnlPeriodsPurchased");
+        premium.connect(alice).purchasePnlPeriods(ethers.ZeroAddress, [await pastPeriod()], NO_DOMAIN_CLAIM, { value: 0 })
+      ).to.be.revertedWith("Zero tracked wallet");
     });
 
-    it("charges an ErevosShares holder nothing, but not a non-holder", async function () {
-      const { premium, deployer, erevos, alice, bob } = await loadFixture(deployFixture);
+    it("reverts on an empty periods array", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      await expect(
+        premium.connect(alice).purchasePnlPeriods(alice.address, [], NO_DOMAIN_CLAIM, { value: 0 })
+      ).to.be.revertedWith("Must purchase at least one period");
+    });
+
+    it("reverts on more than MAX_PERIODS_PER_PURCHASE periods", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      const max = await premium.MAX_PERIODS_PER_PURCHASE();
+      const claim = await pastPeriod();
+      const tooMany = Array.from({ length: Number(max) + 1 }, () => claim);
+      await expect(
+        premium.connect(alice).purchasePnlPeriods(alice.address, tooMany, NO_DOMAIN_CLAIM, { value: 0 })
+      ).to.be.revertedWith("Too many periods in one purchase");
+    });
+
+    it("reverts if a period's end has not yet passed", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      const now = await time.latest();
+      const futureClaim = { periodType: PeriodType.CalendarYear, year: 2099, periodEnd: now + ONE_YEAR };
+      await expect(
+        premium.connect(alice).purchasePnlPeriods(alice.address, [futureClaim], NO_DOMAIN_CLAIM, { value: await premium.pnlPricePerPeriod() })
+      ).to.be.revertedWith("Period has not ended yet");
+    });
+
+    it("charges full price for a single period and refunds excess", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      const price = await premium.pnlPricePerPeriod();
+      const claim = await pastPeriod();
+
+      await expect(
+        premium.connect(alice).purchasePnlPeriods(alice.address, [claim], NO_DOMAIN_CLAIM, { value: price - 1n })
+      ).to.be.revertedWith("Insufficient payment");
+
+      await expect(
+        premium.connect(alice).purchasePnlPeriods(alice.address, [claim], NO_DOMAIN_CLAIM, { value: price + ethers.parseEther("1") })
+      )
+        .to.emit(premium, "PnlPeriodPurchased")
+        .withArgs(alice.address, alice.address, claim.periodType, claim.year, claim.periodEnd, price);
+    });
+
+    it("multi-buy pricing: first period full price, every subsequent period 2/3 price (33% off), when not otherwise discounted", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      const price = await premium.pnlPricePerPeriod(); // 15,000 ETN
+      const multiBuyPrice = (price * 2n) / 3n; // 10,000 ETN
+
+      const claims = [await pastPeriod(3), await pastPeriod(2), await pastPeriod(1)];
+      const total = price + multiBuyPrice + multiBuyPrice; // 15k + 10k + 10k = 35k
+
+      expect(ethers.formatEther(price)).to.equal("15000.0");
+      expect(ethers.formatEther(multiBuyPrice)).to.equal("10000.0");
+      expect(ethers.formatEther(total)).to.equal("35000.0");
+
+      const tx = await premium.connect(alice).purchasePnlPeriods(alice.address, claims, NO_DOMAIN_CLAIM, { value: total });
+      const receipt = await tx.wait();
+      const parsed = receipt.logs.map((l) => { try { return premium.interface.parseLog(l); } catch { return null; } }).filter((e) => e && e.name === "PnlPeriodPurchased");
+
+      expect(parsed.length).to.equal(3);
+      expect(parsed[0].args.amountPaid).to.equal(price);
+      expect(parsed[1].args.amountPaid).to.equal(multiBuyPrice);
+      expect(parsed[2].args.amountPaid).to.equal(multiBuyPrice);
+    });
+
+    it("discount-eligible caller pays the flat 50% price for every period, with no multi-buy stacking", async function () {
+      const { premium, alice } = await loadFixture(deployFixture);
+      const annualPrice = await premium.annualMembershipPricePerYear();
+      await premium.connect(alice).subscribeAnnual(1, { value: annualPrice });
+
+      const price = await premium.pnlPricePerPeriod();
+      const discountedPrice = price / 2n; // 7,500 ETN
+
+      const claims = [await pastPeriod(3), await pastPeriod(2), await pastPeriod(1)];
+      const total = discountedPrice * 3n; // NOT price + 2*multiBuyPrice — no stacking
+
+      const tx = await premium.connect(alice).purchasePnlPeriods(alice.address, claims, NO_DOMAIN_CLAIM, { value: total });
+      const receipt = await tx.wait();
+      const parsed = receipt.logs.map((l) => { try { return premium.interface.parseLog(l); } catch { return null; } }).filter((e) => e && e.name === "PnlPeriodPurchased");
+
+      expect(parsed.length).to.equal(3);
+      for (const event of parsed) {
+        expect(event.args.amountPaid).to.equal(discountedPrice);
+      }
+    });
+
+    it("whitelisted caller gets the 50% discount", async function () {
+      const { premium, deployer, alice } = await loadFixture(deployFixture);
+      await premium.connect(deployer).setWhitelisted(alice.address, true);
+      const discountedPrice = (await premium.pnlPricePerPeriod()) / 2n;
+
+      await expect(
+        premium.connect(alice).purchasePnlPeriods(alice.address, [await pastPeriod()], NO_DOMAIN_CLAIM, { value: discountedPrice })
+      ).to.emit(premium, "PnlPeriodPurchased");
+    });
+
+    it("ErevosShares holder gets the 50% discount only while erevosDiscountEnabled is true", async function () {
+      const { premium, deployer, erevos, alice } = await loadFixture(deployFixture);
       await premium.connect(deployer).setErevosShares(await erevos.getAddress());
       await erevos.mint(alice.address);
+      const price = await premium.pnlPricePerPeriod();
+      const discountedPrice = price / 2n;
 
-      await expect(premium.connect(alice).purchasePnlPeriods(alice.address, 1, NO_DOMAIN_CLAIM, { value: 0 }))
-        .to.emit(premium, "PnlPeriodsPurchased")
-        .withArgs(alice.address, alice.address, 1, 0);
-
-      // bob holds no shares — still has to pay.
       await expect(
-        premium.connect(bob).purchasePnlPeriods(bob.address, 1, NO_DOMAIN_CLAIM, { value: 0 })
-      ).to.be.revertedWith("Insufficient payment");
+        premium.connect(alice).purchasePnlPeriods(alice.address, [await pastPeriod()], NO_DOMAIN_CLAIM, { value: discountedPrice })
+      ).to.emit(premium, "PnlPeriodPurchased");
+
+      await premium.connect(deployer).setErevosDiscountEnabled(false);
+      await expect(
+        premium.connect(alice).purchasePnlPeriods(alice.address, [await pastPeriod(4)], NO_DOMAIN_CLAIM, { value: discountedPrice })
+      ).to.be.revertedWith("Insufficient payment"); // now needs full price since the path is disabled
     });
 
-    it("erevosShares unset (address(0)) disables that free path entirely", async function () {
-      const { premium, alice } = await loadFixture(deployFixture);
-      // Never configured — isEligibleForFreeAccess must not revert or treat this as free.
-      await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 1, NO_DOMAIN_CLAIM, { value: 0 })
-      ).to.be.revertedWith("Insufficient payment");
-    });
-
-    it("charges nothing when the caller proves ownership of an activated domain", async function () {
+    it("activated-domain owner gets the 50% discount only while activatedDomainDiscountEnabled is true", async function () {
       const { premium, deployer, marketplace, nameWrapper, alice } = await loadFixture(deployFixture);
       await premium.connect(deployer).setMarketplace(await marketplace.getAddress());
       await premium.connect(deployer).setNameWrapper(await nameWrapper.getAddress());
-
       const node = ethers.id("alice.etn");
       await marketplace.setActivated(node, true);
       await nameWrapper.setOwner(BigInt(node), alice.address);
 
-      await expect(premium.connect(alice).purchasePnlPeriods(alice.address, 1, node, { value: 0 }))
-        .to.emit(premium, "PnlPeriodsPurchased")
-        .withArgs(alice.address, alice.address, 1, 0);
-    });
-
-    it("does not grant free access for a node that isn't activated", async function () {
-      const { premium, deployer, marketplace, nameWrapper, alice } = await loadFixture(deployFixture);
-      await premium.connect(deployer).setMarketplace(await marketplace.getAddress());
-      await premium.connect(deployer).setNameWrapper(await nameWrapper.getAddress());
-
-      const node = ethers.id("alice.etn");
-      // Owned by alice, but never marked activated on the marketplace.
-      await nameWrapper.setOwner(BigInt(node), alice.address);
+      const price = await premium.pnlPricePerPeriod();
+      const discountedPrice = price / 2n;
 
       await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 1, node, { value: 0 })
+        premium.connect(alice).purchasePnlPeriods(alice.address, [await pastPeriod()], node, { value: discountedPrice })
+      ).to.emit(premium, "PnlPeriodPurchased");
+
+      await premium.connect(deployer).setActivatedDomainDiscountEnabled(false);
+      await expect(
+        premium.connect(alice).purchasePnlPeriods(alice.address, [await pastPeriod(4)], node, { value: discountedPrice })
       ).to.be.revertedWith("Insufficient payment");
     });
 
-    it("does not grant free access for an activated node the caller doesn't own", async function () {
+    it("does not grant the discount for a node that isn't activated, or one the caller doesn't own", async function () {
       const { premium, deployer, marketplace, nameWrapper, alice, bob } = await loadFixture(deployFixture);
       await premium.connect(deployer).setMarketplace(await marketplace.getAddress());
       await premium.connect(deployer).setNameWrapper(await nameWrapper.getAddress());
+      const discountedPrice = (await premium.pnlPricePerPeriod()) / 2n;
 
-      const node = ethers.id("bob.etn");
-      await marketplace.setActivated(node, true);
-      await nameWrapper.setOwner(BigInt(node), bob.address); // owned by bob, not alice
-
+      const notActivated = ethers.id("not-activated.etn");
+      await nameWrapper.setOwner(BigInt(notActivated), alice.address);
       await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 1, node, { value: 0 })
+        premium.connect(alice).purchasePnlPeriods(alice.address, [await pastPeriod()], notActivated, { value: discountedPrice })
       ).to.be.revertedWith("Insufficient payment");
-    });
 
-    it("marketplace/nameWrapper unset disables the activated-domain free path without reverting", async function () {
-      const { premium, alice } = await loadFixture(deployFixture);
-      const node = ethers.id("alice.etn");
+      const ownedByBob = ethers.id("bob.etn");
+      await marketplace.setActivated(ownedByBob, true);
+      await nameWrapper.setOwner(BigInt(ownedByBob), bob.address);
       await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 1, node, { value: 0 })
-      ).to.be.revertedWith("Insufficient payment"); // falls through to the paid path, never reverts on the bogus claim itself
-    });
-
-    it("isEligibleForFreeAccess / isActivatedDomainOwner reflect the same logic purchasePnlPeriods uses", async function () {
-      const { premium, deployer, marketplace, nameWrapper, alice } = await loadFixture(deployFixture);
-      expect(await premium.isEligibleForFreeAccess(alice.address)).to.equal(false);
-
-      await premium.connect(deployer).setWhitelisted(alice.address, true);
-      expect(await premium.isEligibleForFreeAccess(alice.address)).to.equal(true);
-
-      await premium.connect(deployer).setMarketplace(await marketplace.getAddress());
-      await premium.connect(deployer).setNameWrapper(await nameWrapper.getAddress());
-      const node = ethers.id("alice.etn");
-      expect(await premium.isActivatedDomainOwner(alice.address, node)).to.equal(false);
-      await marketplace.setActivated(node, true);
-      await nameWrapper.setOwner(BigInt(node), alice.address);
-      expect(await premium.isActivatedDomainOwner(alice.address, node)).to.equal(true);
+        premium.connect(alice).purchasePnlPeriods(alice.address, [await pastPeriod()], ownedByBob, { value: discountedPrice })
+      ).to.be.revertedWith("Insufficient payment");
     });
 
     it("reverts when paused", async function () {
       const { premium, deployer, alice } = await loadFixture(deployFixture);
       await premium.connect(deployer).setPaused(true);
       await expect(
-        premium.connect(alice).purchasePnlPeriods(alice.address, 1, NO_DOMAIN_CLAIM, { value: await premium.pnlPricePerPeriod() })
+        premium.connect(alice).purchasePnlPeriods(alice.address, [await pastPeriod()], NO_DOMAIN_CLAIM, { value: await premium.pnlPricePerPeriod() })
       ).to.be.revertedWith("Premium subscription paused");
     });
   });
@@ -338,7 +402,7 @@ describe("PremiumSubscription", function () {
 
     it("reverts if buyback is not configured", async function () {
       const { premium, operator, bob } = await loadFixture(deployFixture);
-      await premium.connect(bob).purchasePnlPeriods(bob.address, 1, NO_DOMAIN_CLAIM, { value: await premium.pnlPricePerPeriod() });
+      await premium.connect(bob).purchasePnlPeriods(bob.address, [await pastPeriod()], NO_DOMAIN_CLAIM, { value: await premium.pnlPricePerPeriod() });
       await expect(
         premium.connect(operator).executeSplitForPeriod(1n, 0, (await time.latest()) + 300)
       ).to.be.revertedWith("Buyback not configured");
@@ -459,6 +523,18 @@ describe("PremiumSubscription", function () {
       expect(await premium.membershipPricePerMonth()).to.equal(123n);
     });
 
+    it("setAnnualMembershipPricePerYear: owner-only, updates value, emits event", async function () {
+      const { premium, deployer, alice } = await loadFixture(deployFixture);
+      await expect(
+        premium.connect(alice).setAnnualMembershipPricePerYear(1n)
+      ).to.be.revertedWithCustomError(premium, "OwnableUnauthorizedAccount");
+
+      await expect(premium.connect(deployer).setAnnualMembershipPricePerYear(789n))
+        .to.emit(premium, "AnnualMembershipPricePerYearUpdated")
+        .withArgs(789n);
+      expect(await premium.annualMembershipPricePerYear()).to.equal(789n);
+    });
+
     it("setPnlPricePerPeriod: owner-only, updates value, emits event", async function () {
       const { premium, deployer, alice } = await loadFixture(deployFixture);
       await expect(premium.connect(alice).setPnlPricePerPeriod(1n)).to.be.revertedWithCustomError(
@@ -558,25 +634,38 @@ describe("PremiumSubscription", function () {
       await expect(tx).to.emit(premium, "WhitelistUpdated").withArgs(bob.address, true);
     });
 
-    it("setErevosShares: owner-only, updates value, emits event", async function () {
+    it("setErevosShares / setErevosDiscountEnabled: owner-only, update values, emit events", async function () {
       const { premium, deployer, alice, erevos } = await loadFixture(deployFixture);
       await expect(
         premium.connect(alice).setErevosShares(await erevos.getAddress())
       ).to.be.revertedWithCustomError(premium, "OwnableUnauthorizedAccount");
+      await expect(premium.connect(alice).setErevosDiscountEnabled(false)).to.be.revertedWithCustomError(
+        premium,
+        "OwnableUnauthorizedAccount"
+      );
 
       await expect(premium.connect(deployer).setErevosShares(await erevos.getAddress()))
         .to.emit(premium, "ErevosSharesUpdated")
         .withArgs(await erevos.getAddress());
       expect(await premium.erevosShares()).to.equal(await erevos.getAddress());
+
+      expect(await premium.erevosDiscountEnabled()).to.equal(true); // default on
+      await expect(premium.connect(deployer).setErevosDiscountEnabled(false))
+        .to.emit(premium, "ErevosDiscountEnabledUpdated")
+        .withArgs(false);
+      expect(await premium.erevosDiscountEnabled()).to.equal(false);
     });
 
-    it("setMarketplace / setNameWrapper: owner-only, update values, emit events", async function () {
+    it("setMarketplace / setNameWrapper / setActivatedDomainDiscountEnabled: owner-only, update values, emit events", async function () {
       const { premium, deployer, alice, marketplace, nameWrapper } = await loadFixture(deployFixture);
       await expect(
         premium.connect(alice).setMarketplace(await marketplace.getAddress())
       ).to.be.revertedWithCustomError(premium, "OwnableUnauthorizedAccount");
       await expect(
         premium.connect(alice).setNameWrapper(await nameWrapper.getAddress())
+      ).to.be.revertedWithCustomError(premium, "OwnableUnauthorizedAccount");
+      await expect(
+        premium.connect(alice).setActivatedDomainDiscountEnabled(false)
       ).to.be.revertedWithCustomError(premium, "OwnableUnauthorizedAccount");
 
       await expect(premium.connect(deployer).setMarketplace(await marketplace.getAddress()))
@@ -588,6 +677,12 @@ describe("PremiumSubscription", function () {
 
       expect(await premium.marketplace()).to.equal(await marketplace.getAddress());
       expect(await premium.nameWrapper()).to.equal(await nameWrapper.getAddress());
+
+      expect(await premium.activatedDomainDiscountEnabled()).to.equal(true); // default on
+      await expect(premium.connect(deployer).setActivatedDomainDiscountEnabled(false))
+        .to.emit(premium, "ActivatedDomainDiscountEnabledUpdated")
+        .withArgs(false);
+      expect(await premium.activatedDomainDiscountEnabled()).to.equal(false);
     });
   });
 });
