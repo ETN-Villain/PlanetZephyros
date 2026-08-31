@@ -35,7 +35,13 @@ import { deploy } from './ethers-lib'
 const OWNER: string = '0x0000000000000000000000000000000000000000' // your admin wallet
 const OPERATOR: string = '0x3Fd2e5B4AC0efF6DFDF2446abddAB3f66B425099' // CORE_CLASH_BACKEND_PRIVATE_KEY's public address (confirmed)
 
-const WETH_PLACEHOLDER = '0x3Fd2e5B4AC0efF6DFDF2446abddAB3f66B425099' // arbitrary placeholder — MockRouter never validates this, same value deployMockCoreAndRouter_remix.ts uses
+// Arbitrary placeholder — confirmed by reading MockRouter.sol directly that it never validates
+// this value (WETH() just echoes back whatever's passed at construction; the swap function only
+// checks path[1] == coreToken, never path[0]). Deliberately NOT reused from OPERATOR above (the
+// original deployMockCoreAndRouter_remix.ts happens to use that same literal address for its own
+// unrelated reasons) — using a well-known "burn address" placeholder instead avoids any
+// appearance of a real relationship between the two values.
+const WETH_PLACEHOLDER = '0x000000000000000000000000000000000000dEaD'
 const RATE = 1000 // CORE (wei) minted per 1 wei ETN sent through MockRouter's fake swap
 
 const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
