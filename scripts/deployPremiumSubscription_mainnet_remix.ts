@@ -1,4 +1,4 @@
-// Deploys PremiumSubscription to Electroneum MAINNET via Remix's injected provider — same
+// Deploys PlanetZephyrosPnLStatement to Electroneum MAINNET via Remix's injected provider — same
 // workflow as deployMarketplace_mainnet_remix.ts.
 //
 // TESTNET STATUS AS OF 2026-08-31: the testnet lifecycle scenarios (paid->generated->viewed->
@@ -30,12 +30,12 @@ import { deploy } from './ethers-lib'
 // TODO: fill this in before running — your real admin wallet. NOT auto-filled to the same address
 // as OPERATOR below, even though that address happens to also be the Marketplace contract's
 // owner() on mainnet (see deployMarketplace_mainnet_remix.ts) — confirm deliberately, don't assume.
-const OWNER: string = '0x0000000000000000000000000000000000000000'
+const OWNER: string = '0x3Fd2e5B4AC0efF6DFDF2446abddAB3f66B425099'
 
 // CORE_CLASH_BACKEND_PRIVATE_KEY's public address (confirmed earlier in this engagement). Also
 // receives the non-burn half of every split (splitDestination == OPERATOR, confirmed design — no
 // separate treasury address).
-const OPERATOR: string = '0x3Fd2e5B4AC0efF6DFDF2446abddAB3f66B425099'
+const OPERATOR: string = '0xa48Bc549a329EEd01E491C7CD950857A8ae56E73'
 
 // Real Electroneum mainnet CORE token — re-verified live just before writing this script:
 // Blockscout confirms verified contract "PlanetZephyros", symbol CORE, ERC-20, 18 decimals,
@@ -54,8 +54,8 @@ const ZERO_ADDRESS: string = '0x0000000000000000000000000000000000000000'
       throw new Error('Set OWNER at the top of this script before running.')
     }
 
-    const premium = await deploy('PremiumSubscription', [OWNER, OPERATOR, OPERATOR])
-    console.log(`PremiumSubscription deployed to MAINNET: ${premium.address}`)
+    const premium = await deploy('PlanetZephyrosPnLStatement', [OWNER, OPERATOR, OPERATOR])
+    console.log(`PlanetZephyrosPnLStatement deployed to MAINNET: ${premium.address}`)
 
     console.log('')
     console.log('=== REQUIRED next steps, in this order, all as the OWNER account via the "Deployed Contracts" panel ===')
