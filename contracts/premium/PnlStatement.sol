@@ -49,7 +49,7 @@ pragma solidity ^0.8.24;
  *     whatever's released goes straight to splitDestination, the other half is swapped ETN->CORE
  *     via a Uniswap-V2-style router and burned via CORE's own burn().
  *
- * Website: https://planetzephyros.xyz/
+ * Website: https://dashboard.planetzephyros.xyz/
  */
 
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -62,7 +62,7 @@ import "../subnames/interfaces/IBurnableERC20.sol";
 import "../subnames/interfaces/INameWrapperLite.sol";
 import "./interfaces/IMarketplaceLite.sol";
 
-contract PremiumSubscription is Ownable, ReentrancyGuard {
+contract PlanetZephyrosPnLStatement is Ownable, ReentrancyGuard {
     // ========================
     // Roles
     // ========================
